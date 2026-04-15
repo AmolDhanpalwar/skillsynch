@@ -31,7 +31,7 @@ const navItems: NavItem[] = [
   { icon: TrendingUp,      label: 'TMG Dashboard',  path: '/tmg-dashboard', roles: ['tmg', 'admin'] },
   { icon: Activity,        label: 'Form Status',    path: '/status',        roles: ['tmg', 'admin'] },
   { icon: BarChart2,       label: 'Reports',         path: '/reports',       roles: ['management', 'admin'] },
-  { icon: Star,            label: 'Skills Matrix',  path: '/dashboard',     roles: ['manager', 'tmg', 'management', 'admin'] },
+  { icon: Star,            label: 'Skills Matrix',  path: '/tmg-dashboard', roles: ['manager', 'tmg', 'management', 'admin'] },
   { icon: Users,           label: 'Users',           path: '/admin',         roles: ['admin'] },
   { icon: HelpCircle,      label: 'Power BI Guide', path: '/help/powerbi',  roles: ['tmg', 'management', 'admin'] },
 ];

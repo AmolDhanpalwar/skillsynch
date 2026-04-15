@@ -11,7 +11,7 @@ interface PrivateRouteProps {
 export default function PrivateRoute({ children, allowedRoles }: PrivateRouteProps) {
   const { session, user, loading } = useAuth();
 
-  if (loading) {
+  if (loading || (session && !user)) {
     return (
       <div className="min-h-screen bg-bglight flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">

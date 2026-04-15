@@ -86,7 +86,7 @@ function AppRoutes() {
         <Route
           path="/tmg-dashboard"
           element={
-            <PrivateRoute allowedRoles={['tmg', 'admin']}>
+            <PrivateRoute allowedRoles={['manager', 'tmg', 'admin']}>
               <TmgDashboardPage />
             </PrivateRoute>
           }
