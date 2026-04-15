@@ -7,32 +7,41 @@ import {
   BarChart2,
   TrendingUp,
   Loader2,
-  RotateCcw,
+  Award,
+  Code2,
 } from 'lucide-react';
+import {
+  PieChart,
+  Pie,
+  Cell,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  LabelList,
+} from 'recharts';
 import AppShell from '../components/layout/AppShell';
 import { supabase } from '../lib/supabaseClient';
 import type { FormStatus } from '../types';
 
-interface FormRow {
-  status: FormStatus;
-  grade: string | null;
-  designation: string | null;
-}
+const BRAND = {
+  primary: '#1A3C5E',
+  accent:  '#00A9CE',
+  success: '#059669',
+  warning: '#f59e0b',
+  danger:  '#f97316',
+  muted:   '#9ca3af',
+};
 
-interface BarData {
-  label: string;
-  approved: number;
-  pending: number;
-  draft: number;
-  returned: number;
-  total: number;
-}
-
-const STATUS_COLORS: Record<FormStatus, string> = {
-  approved:       '#10b981',
-  pending_review: '#f59e0b',
-  returned:       '#f97316',
-  draft:          '#9ca3af',
+const STATUS_COLORS: Record<string, string> = {
+  approved:       BRAND.success,
+  pending_review: BRAND.warning,
+  returned:       BRAND.danger,
+  draft:          BRAND.muted,
 };
 
 const STATUS_LABELS: Record<FormStatus, string> = {
@@ -42,147 +51,224 @@ const STATUS_LABELS: Record<FormStatus, string> = {
   draft:          'Draft',
 };
 
-function MiniBar({ value, max, color }: { value: number; max: number; color: string }) {
-  const pct = max > 0 ? Math.max(4, (value / max) * 100) : 0;
+interface SkillEntry {
+  name: string;
+  employee_rating: number | null;
+  manager_rating: number | null;
+}
+
+interface AnalyticsData {
+  statusBreakdown: { name: string; value: number; color: string }[];
+  topLanguages: { name: string; avgMgrRating: number }[];
+  topFrameworks: { name: string; avgMgrRating: number }[];
+  selfVsMgr: { name: string; self: number; manager: number }[];
+  certCounts: { name: string; count: number }[];
+  totalEmployees: number;
+  formsCount: number;
+  approvedCount: number;
+  pendingCount: number;
+  notStartedCount: number;
+}
+
+function avg(nums: number[]): number {
+  if (!nums.length) return 0;
+  return Math.round((nums.reduce((s, n) => s + n, 0) / nums.length) * 100) / 100;
+}
+
+function parseSkills(step2: Record<string, unknown> | null, field: 'languages' | 'frameworks'): SkillEntry[] {
+  if (!step2) return [];
+  const arr = step2[field];
+  if (!Array.isArray(arr)) return [];
+  return arr as SkillEntry[];
+}
+
+function parseCerts(step3: Record<string, unknown> | null): string[] {
+  if (!step3) return [];
+  const certs = step3.certifications;
+  if (!Array.isArray(certs)) return [];
+  return (certs as string[]).filter((c) => c && c.trim().length > 0);
+}
+
+async function fetchAnalyticsData(): Promise<AnalyticsData> {
+  const [{ count: totalEmployees }, { data: formsRaw }] = await Promise.all([
+    supabase.from('users').select('*', { count: 'exact', head: true }).eq('role', 'employee'),
+    supabase.from('skill_forms').select('status, step2_data, step3_data'),
+  ]);
+
+  const forms = formsRaw ?? [];
+  const formsCount = forms.length;
+  const approvedCount = forms.filter((f) => f.status === 'approved').length;
+  const pendingCount  = forms.filter((f) => f.status === 'pending_review').length;
+  const notStartedCount = (totalEmployees ?? 0) - formsCount;
+
+  const statusCounts: Record<string, number> = { approved: 0, pending_review: 0, returned: 0, draft: 0 };
+  forms.forEach((f) => { if (statusCounts[f.status] !== undefined) statusCounts[f.status]++; });
+  const statusBreakdown = (Object.keys(statusCounts) as FormStatus[])
+    .filter((k) => statusCounts[k] > 0)
+    .map((k) => ({ name: STATUS_LABELS[k], value: statusCounts[k], color: STATUS_COLORS[k] }));
+
+  const langMap: Record<string, number[]> = {};
+  const fwkMap:  Record<string, { mgr: number[] }> = {};
+  const skillCombined: Record<string, { self: number[]; mgr: number[] }> = {};
+  const certMap: Record<string, number> = {};
+
+  forms.forEach((f) => {
+    const s2 = f.step2_data as Record<string, unknown> | null;
+    const s3 = f.step3_data as Record<string, unknown> | null;
+
+    parseSkills(s2, 'languages').forEach((skill) => {
+      if (!skill.name) return;
+      if (!langMap[skill.name]) langMap[skill.name] = [];
+      if (skill.manager_rating !== null) langMap[skill.name].push(skill.manager_rating);
+      if (!skillCombined[skill.name]) skillCombined[skill.name] = { self: [], mgr: [] };
+      if (skill.employee_rating !== null) skillCombined[skill.name].self.push(skill.employee_rating);
+      if (skill.manager_rating !== null)  skillCombined[skill.name].mgr.push(skill.manager_rating);
+    });
+
+    parseSkills(s2, 'frameworks').forEach((skill) => {
+      if (!skill.name) return;
+      if (!fwkMap[skill.name]) fwkMap[skill.name] = { mgr: [] };
+      if (skill.manager_rating !== null) fwkMap[skill.name].mgr.push(skill.manager_rating);
+      if (!skillCombined[skill.name]) skillCombined[skill.name] = { self: [], mgr: [] };
+      if (skill.employee_rating !== null) skillCombined[skill.name].self.push(skill.employee_rating);
+      if (skill.manager_rating !== null)  skillCombined[skill.name].mgr.push(skill.manager_rating);
+    });
+
+    parseCerts(s3).forEach((cert) => {
+      const key = cert.trim();
+      if (!key) return;
+      certMap[key] = (certMap[key] ?? 0) + 1;
+    });
+  });
+
+  const topLanguages = Object.entries(langMap)
+    .map(([name, ratings]) => ({ name, avgMgrRating: avg(ratings) }))
+    .filter((x) => x.avgMgrRating > 0)
+    .sort((a, b) => b.avgMgrRating - a.avgMgrRating)
+    .slice(0, 10);
+
+  const topFrameworks = Object.entries(fwkMap)
+    .map(([name, { mgr }]) => ({ name, avgMgrRating: avg(mgr) }))
+    .filter((x) => x.avgMgrRating > 0)
+    .sort((a, b) => b.avgMgrRating - a.avgMgrRating)
+    .slice(0, 10);
+
+  const selfVsMgr = Object.entries(skillCombined)
+    .map(([name, { self, mgr }]) => ({ name, self: avg(self), manager: avg(mgr) }))
+    .filter((x) => x.self > 0 || x.manager > 0)
+    .sort((a, b) => b.manager - a.manager)
+    .slice(0, 8);
+
+  const certCounts = Object.entries(certMap)
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+
+  return {
+    statusBreakdown,
+    topLanguages,
+    topFrameworks,
+    selfVsMgr,
+    certCounts,
+    totalEmployees: totalEmployees ?? 0,
+    formsCount,
+    approvedCount,
+    pendingCount,
+    notStartedCount,
+  };
+}
+
+function ChartCard({ title, icon: Icon, iconBg, iconColor, children }: {
+  title: string;
+  icon: React.ElementType;
+  iconBg: string;
+  iconColor: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="flex items-center gap-2">
-      <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-        <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, backgroundColor: color }} />
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="flex items-center gap-2.5 mb-5">
+        <div className={`w-8 h-8 rounded-xl ${iconBg} flex items-center justify-center`}>
+          <Icon size={15} className={iconColor} />
+        </div>
+        <h2 className="font-heading font-bold text-sm text-gray-900">{title}</h2>
       </div>
-      <span className="text-xs font-heading font-semibold text-gray-700 w-6 text-right">{value}</span>
+      {children}
     </div>
   );
 }
 
-function GroupedBarChart({ data }: { data: BarData[] }) {
-  const maxVal = Math.max(...data.map((d) => d.total), 1);
-
+const CustomTooltip = ({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: { name: string; value: number; color: string }[];
+  label?: string;
+}) => {
+  if (!active || !payload?.length) return null;
   return (
-    <div className="space-y-3">
-      {data.slice(0, 8).map((d) => (
-        <div key={d.label} className="flex items-center gap-3">
-          <span className="text-xs text-gray-500 font-body w-28 shrink-0 truncate">{d.label}</span>
-          <div className="flex-1 space-y-1">
-            <MiniBar value={d.approved} max={maxVal} color={STATUS_COLORS.approved} />
-            <MiniBar value={d.pending} max={maxVal} color={STATUS_COLORS.pending_review} />
-            {d.draft > 0 && <MiniBar value={d.draft} max={maxVal} color={STATUS_COLORS.draft} />}
-          </div>
+    <div className="bg-white border border-gray-100 rounded-xl shadow-md px-3 py-2.5 text-xs font-body">
+      {label && <p className="font-semibold font-heading text-gray-800 mb-1">{label}</p>}
+      {payload.map((p) => (
+        <div key={p.name} className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }} />
+          <span className="text-gray-500">{p.name}:</span>
+          <span className="font-semibold text-gray-800">
+            {typeof p.value === 'number' ? p.value.toFixed(2) : p.value}
+          </span>
         </div>
       ))}
     </div>
   );
-}
+};
 
-function DonutChart({ segments }: { segments: { value: number; color: string; label: string }[] }) {
-  const total = segments.reduce((s, g) => s + g.value, 0);
-  if (total === 0) return (
-    <div className="w-32 h-32 rounded-full bg-gray-100 flex items-center justify-center">
-      <span className="text-xs text-gray-400 font-body">No data</span>
+const PieTooltip = ({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: { name: string; value: number; payload: { color: string } }[];
+}) => {
+  if (!active || !payload?.length) return null;
+  const item = payload[0];
+  return (
+    <div className="bg-white border border-gray-100 rounded-xl shadow-md px-3 py-2 text-xs font-body">
+      <div className="flex items-center gap-1.5">
+        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: item.payload.color }} />
+        <span className="font-semibold text-gray-800">{item.name}:</span>
+        <span className="text-gray-600">{item.value}</span>
+      </div>
     </div>
   );
-
-  let cumAngle = -90;
-  const r = 54;
-  const cx = 64;
-  const cy = 64;
-
-  const arcs = segments
-    .filter((s) => s.value > 0)
-    .map((s) => {
-      const pct = s.value / total;
-      const angle = pct * 360;
-      const startRad = (cumAngle * Math.PI) / 180;
-      const endRad = ((cumAngle + angle) * Math.PI) / 180;
-      const x1 = cx + r * Math.cos(startRad);
-      const y1 = cy + r * Math.sin(startRad);
-      const x2 = cx + r * Math.cos(endRad);
-      const y2 = cy + r * Math.sin(endRad);
-      const large = angle > 180 ? 1 : 0;
-      cumAngle += angle;
-      return { d: `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`, color: s.color, label: s.label, value: s.value };
-    });
-
-  return (
-    <svg viewBox="0 0 128 128" className="w-32 h-32">
-      {arcs.map((arc, i) => (
-        <path key={i} d={arc.d} fill={arc.color} opacity={0.9} />
-      ))}
-      <circle cx={cx} cy={cy} r={32} fill="white" />
-      <text x={cx} y={cy - 4} textAnchor="middle" className="text-lg font-bold" fontSize="18" fontWeight="700" fill="#111827">{total}</text>
-      <text x={cx} y={cy + 12} textAnchor="middle" fontSize="8" fill="#9ca3af">total</text>
-    </svg>
-  );
-}
+};
 
 export default function ReportsPage() {
-  const [forms, setForms] = useState<FormRow[]>([]);
-  const [totalEmployees, setTotalEmployees] = useState(0);
+  const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function load() {
-      const [{ count }, { data: formData }] = await Promise.all([
-        supabase.from('users').select('*', { count: 'exact', head: true }).eq('role', 'employee'),
-        supabase
-          .from('skill_forms')
-          .select('status, users!skill_forms_employee_id_fkey(grade, designation)')
-      ]);
-
-      setTotalEmployees(count ?? 0);
-
-      if (formData) {
-        setForms(
-          formData.map((f) => {
-            const u = f.users as Record<string, unknown> | null;
-            return {
-              status: f.status as FormStatus,
-              grade: (u?.grade as string) || null,
-              designation: (u?.designation as string) || null,
-            };
-          })
-        );
-      }
+    fetchAnalyticsData().then((d) => {
+      setData(d);
       setLoading(false);
-    }
-    load();
+    });
   }, []);
 
-  const stats = useMemo(() => ({
-    total: totalEmployees,
-    approved: forms.filter((f) => f.status === 'approved').length,
-    pending: forms.filter((f) => f.status === 'pending_review').length,
-    notStarted: totalEmployees - forms.length,
-  }), [forms, totalEmployees]);
+  const approvalRate   = data && data.totalEmployees > 0 ? Math.round((data.approvedCount / data.totalEmployees) * 100) : 0;
+  const submissionRate = data && data.totalEmployees > 0 ? Math.round((data.formsCount / data.totalEmployees) * 100) : 0;
+  const pendingReturnedRate = useMemo(() => {
+    if (!data || data.totalEmployees === 0) return 0;
+    const returned = data.statusBreakdown.find((s) => s.name === 'Returned')?.value ?? 0;
+    return Math.round(((data.pendingCount + returned) / data.totalEmployees) * 100);
+  }, [data]);
 
-  const statusBreakdown = useMemo(() => {
-    const counts: Record<FormStatus, number> = { approved: 0, pending_review: 0, returned: 0, draft: 0 };
-    forms.forEach((f) => { counts[f.status]++; });
-    return counts;
-  }, [forms]);
-
-  const byGrade = useMemo<BarData[]>(() => {
-    const map: Record<string, BarData> = {};
-    forms.forEach((f) => {
-      const g = f.grade || 'Unknown';
-      if (!map[g]) map[g] = { label: g, approved: 0, pending: 0, draft: 0, returned: 0, total: 0 };
-      map[g].total++;
-      if (f.status === 'approved') map[g].approved++;
-      else if (f.status === 'pending_review') map[g].pending++;
-      else if (f.status === 'draft') map[g].draft++;
-      else map[g].returned++;
-    });
-    return Object.values(map).sort((a, b) => a.label.localeCompare(b.label));
-  }, [forms]);
-
-  const STAT_CARDS = [
-    { label: 'Total Employees', value: stats.total,      icon: Users,        color: 'text-primary-500', bg: 'bg-primary-50',  border: 'border-primary-100' },
-    { label: 'Approved',        value: stats.approved,   icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50',  border: 'border-emerald-100' },
-    { label: 'Pending Review',  value: stats.pending,    icon: Clock,        color: 'text-amber-600',   bg: 'bg-amber-50',    border: 'border-amber-100' },
-    { label: 'Not Started',     value: stats.notStarted, icon: FileX,        color: 'text-gray-500',    bg: 'bg-gray-50',     border: 'border-gray-200' },
-  ];
-
-  const approvalRate = stats.total > 0 ? Math.round((stats.approved / stats.total) * 100) : 0;
-  const submissionRate = stats.total > 0 ? Math.round((forms.length / stats.total) * 100) : 0;
+  const STAT_CARDS = useMemo(() => [
+    { label: 'Total Employees', value: data?.totalEmployees ?? 0, icon: Users,        color: 'text-primary-500', bg: 'bg-primary-50',  border: 'border-primary-100' },
+    { label: 'Approved',        value: data?.approvedCount ?? 0,  icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50',  border: 'border-emerald-100' },
+    { label: 'Pending Review',  value: data?.pendingCount ?? 0,   icon: Clock,        color: 'text-amber-600',   bg: 'bg-amber-50',    border: 'border-amber-100' },
+    { label: 'Not Started',     value: data?.notStartedCount ?? 0, icon: FileX,       color: 'text-gray-500',    bg: 'bg-gray-50',     border: 'border-gray-200' },
+  ], [data]);
 
   return (
     <AppShell>
@@ -211,113 +297,192 @@ export default function ReportsPage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-                <div className="flex items-center gap-2.5 mb-5">
-                  <div className="w-8 h-8 rounded-xl bg-primary-50 flex items-center justify-center">
-                    <BarChart2 size={15} className="text-primary-500" />
-                  </div>
-                  <h2 className="font-heading font-bold text-sm text-gray-900">Status Breakdown</h2>
-                </div>
+              <ChartCard title="Submission Status Breakdown" icon={BarChart2} iconBg="bg-primary-50" iconColor="text-primary-500">
+                {(data?.statusBreakdown?.length ?? 0) === 0 ? (
+                  <div className="flex items-center justify-center h-48 text-gray-300 text-sm font-body">No data yet</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <PieChart>
+                      <Pie
+                        data={data!.statusBreakdown}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={55}
+                        outerRadius={85}
+                        paddingAngle={3}
+                        dataKey="value"
+                      >
+                        {data!.statusBreakdown.map((entry, i) => (
+                          <Cell key={i} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip content={<PieTooltip />} />
+                      <Legend
+                        formatter={(value) => <span className="text-xs font-body text-gray-600">{value}</span>}
+                        iconType="circle"
+                        iconSize={8}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+              </ChartCard>
 
-                <div className="flex items-start gap-6">
-                  <DonutChart
-                    segments={[
-                      { value: statusBreakdown.approved,       color: STATUS_COLORS.approved,       label: 'Approved' },
-                      { value: statusBreakdown.pending_review, color: STATUS_COLORS.pending_review, label: 'Pending' },
-                      { value: statusBreakdown.returned,       color: STATUS_COLORS.returned,       label: 'Returned' },
-                      { value: statusBreakdown.draft,          color: STATUS_COLORS.draft,          label: 'Draft' },
-                    ]}
-                  />
-                  <div className="flex-1 space-y-2.5 mt-2">
-                    {(Object.keys(statusBreakdown) as FormStatus[]).map((s) => (
-                      <div key={s} className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: STATUS_COLORS[s] }} />
-                          <span className="text-xs text-gray-600 font-body">{STATUS_LABELS[s]}</span>
-                        </div>
-                        <span className="text-xs font-semibold font-heading text-gray-800">{statusBreakdown[s]}</span>
+              <ChartCard title="Key Metrics" icon={TrendingUp} iconBg="bg-accent-50" iconColor="text-accent-500">
+                <div className="space-y-5 pt-1">
+                  {[
+                    {
+                      label: 'Submission Rate',
+                      value: submissionRate,
+                      color: 'bg-accent-400',
+                      subtitle: `${data?.formsCount ?? 0} of ${data?.totalEmployees ?? 0} employees`,
+                    },
+                    {
+                      label: 'Approval Rate',
+                      value: approvalRate,
+                      color: 'bg-emerald-400',
+                      subtitle: `${data?.approvedCount ?? 0} of ${data?.totalEmployees ?? 0} employees approved`,
+                    },
+                    {
+                      label: 'Pending / Returned',
+                      value: pendingReturnedRate,
+                      color: 'bg-amber-400',
+                      subtitle: `${data?.pendingCount ?? 0} pending forms`,
+                    },
+                  ].map((m) => (
+                    <div key={m.label}>
+                      <div className="flex justify-between items-center mb-1.5">
+                        <span className="text-xs text-gray-500 font-body">{m.label}</span>
+                        <span className="text-xs font-semibold font-heading text-gray-800">{m.value}%</span>
                       </div>
-                    ))}
-                    <div className="pt-2 border-t border-gray-100">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-gray-500 font-body">Not Started</span>
-                        <span className="text-xs font-semibold font-heading text-gray-800">{stats.notStarted}</span>
+                      <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${m.color} transition-all duration-700`}
+                          style={{ width: `${m.value}%` }}
+                        />
                       </div>
+                      <p className="text-[10px] text-gray-400 font-body mt-1">{m.subtitle}</p>
                     </div>
-                  </div>
+                  ))}
                 </div>
-              </div>
-
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-                <div className="flex items-center gap-2.5 mb-5">
-                  <div className="w-8 h-8 rounded-xl bg-accent-50 flex items-center justify-center">
-                    <TrendingUp size={15} className="text-accent-500" />
-                  </div>
-                  <h2 className="font-heading font-bold text-sm text-gray-900">Key Metrics</h2>
-                </div>
-
-                <div className="space-y-5">
-                  <div>
-                    <div className="flex justify-between items-center mb-1.5">
-                      <span className="text-xs text-gray-500 font-body">Submission Rate</span>
-                      <span className="text-xs font-semibold font-heading text-gray-800">{submissionRate}%</span>
-                    </div>
-                    <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full bg-accent-400 transition-all duration-700" style={{ width: `${submissionRate}%` }} />
-                    </div>
-                    <p className="text-[10px] text-gray-400 font-body mt-1">{forms.length} of {stats.total} employees submitted a form</p>
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between items-center mb-1.5">
-                      <span className="text-xs text-gray-500 font-body">Approval Rate</span>
-                      <span className="text-xs font-semibold font-heading text-gray-800">{approvalRate}%</span>
-                    </div>
-                    <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full bg-emerald-400 transition-all duration-700" style={{ width: `${approvalRate}%` }} />
-                    </div>
-                    <p className="text-[10px] text-gray-400 font-body mt-1">{stats.approved} of {stats.total} employees approved</p>
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between items-center mb-1.5">
-                      <span className="text-xs text-gray-500 font-body">Pending / Returned</span>
-                      <span className="text-xs font-semibold font-heading text-gray-800">{stats.pending + statusBreakdown.returned}</span>
-                    </div>
-                    <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full bg-amber-400 transition-all duration-700" style={{ width: `${stats.total > 0 ? ((stats.pending + statusBreakdown.returned) / stats.total) * 100 : 0}%` }} />
-                    </div>
-                    <p className="text-[10px] text-gray-400 font-body mt-1">{stats.pending} pending + {statusBreakdown.returned} returned</p>
-                  </div>
-                </div>
-              </div>
+              </ChartCard>
             </div>
 
-            {byGrade.length > 0 && (
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-                <div className="flex items-center justify-between mb-5">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center">
-                      <RotateCcw size={15} className="text-emerald-500" />
-                    </div>
-                    <h2 className="font-heading font-bold text-sm text-gray-900">Submissions by Grade</h2>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {[
-                      { label: 'Approved',       color: STATUS_COLORS.approved },
-                      { label: 'Pending',        color: STATUS_COLORS.pending_review },
-                      { label: 'Draft',          color: STATUS_COLORS.draft },
-                    ].map((l) => (
-                      <div key={l.label} className="flex items-center gap-1.5">
-                        <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: l.color }} />
-                        <span className="text-[10px] text-gray-500 font-body">{l.label}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <GroupedBarChart data={byGrade} />
-              </div>
-            )}
+            <ChartCard title="Top 10 Languages by Average Manager Rating" icon={Code2} iconBg="bg-primary-50" iconColor="text-primary-500">
+              {(data?.topLanguages?.length ?? 0) === 0 ? (
+                <div className="flex items-center justify-center h-48 text-gray-300 text-sm font-body">No manager ratings recorded yet</div>
+              ) : (
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={data!.topLanguages} margin={{ top: 5, right: 20, left: -10, bottom: 60 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                    <XAxis
+                      dataKey="name"
+                      tick={{ fontSize: 11, fontFamily: 'Inter', fill: '#6b7280' }}
+                      angle={-35}
+                      textAnchor="end"
+                      interval={0}
+                    />
+                    <YAxis domain={[0, 4]} tick={{ fontSize: 11, fontFamily: 'Inter', fill: '#6b7280' }} tickCount={5} />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Bar dataKey="avgMgrRating" name="Avg Mgr Rating" fill={BRAND.primary} radius={[4, 4, 0, 0]} maxBarSize={40}>
+                      <LabelList
+                        dataKey="avgMgrRating"
+                        position="top"
+                        formatter={(v: number) => v.toFixed(1)}
+                        style={{ fontSize: 10, fill: '#374151', fontFamily: 'Inter' }}
+                      />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </ChartCard>
+
+            <ChartCard title="Top 10 Frameworks by Average Manager Rating" icon={Code2} iconBg="bg-accent-50" iconColor="text-accent-500">
+              {(data?.topFrameworks?.length ?? 0) === 0 ? (
+                <div className="flex items-center justify-center h-48 text-gray-300 text-sm font-body">No manager ratings recorded yet</div>
+              ) : (
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={data!.topFrameworks} margin={{ top: 5, right: 20, left: -10, bottom: 60 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                    <XAxis
+                      dataKey="name"
+                      tick={{ fontSize: 11, fontFamily: 'Inter', fill: '#6b7280' }}
+                      angle={-35}
+                      textAnchor="end"
+                      interval={0}
+                    />
+                    <YAxis domain={[0, 4]} tick={{ fontSize: 11, fontFamily: 'Inter', fill: '#6b7280' }} tickCount={5} />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Bar dataKey="avgMgrRating" name="Avg Mgr Rating" fill={BRAND.accent} radius={[4, 4, 0, 0]} maxBarSize={40}>
+                      <LabelList
+                        dataKey="avgMgrRating"
+                        position="top"
+                        formatter={(v: number) => v.toFixed(1)}
+                        style={{ fontSize: 10, fill: '#374151', fontFamily: 'Inter' }}
+                      />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </ChartCard>
+
+            <ChartCard title="Self-Rating vs Manager Rating — Top 8 Skills" icon={TrendingUp} iconBg="bg-emerald-50" iconColor="text-emerald-500">
+              {(data?.selfVsMgr?.length ?? 0) === 0 ? (
+                <div className="flex items-center justify-center h-48 text-gray-300 text-sm font-body">No ratings recorded yet</div>
+              ) : (
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={data!.selfVsMgr} margin={{ top: 5, right: 20, left: -10, bottom: 60 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                    <XAxis
+                      dataKey="name"
+                      tick={{ fontSize: 11, fontFamily: 'Inter', fill: '#6b7280' }}
+                      angle={-35}
+                      textAnchor="end"
+                      interval={0}
+                    />
+                    <YAxis domain={[0, 4]} tick={{ fontSize: 11, fontFamily: 'Inter', fill: '#6b7280' }} tickCount={5} />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Legend
+                      formatter={(value) => <span className="text-xs font-body text-gray-600">{value}</span>}
+                      iconType="circle"
+                      iconSize={8}
+                    />
+                    <Bar dataKey="self" name="Self Rating" fill={BRAND.accent} radius={[3, 3, 0, 0]} maxBarSize={20} />
+                    <Bar dataKey="manager" name="Manager Rating" fill={BRAND.primary} radius={[3, 3, 0, 0]} maxBarSize={20} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </ChartCard>
+
+            <ChartCard title="Certification Count by Name — Top 10" icon={Award} iconBg="bg-amber-50" iconColor="text-amber-500">
+              {(data?.certCounts?.length ?? 0) === 0 ? (
+                <div className="flex items-center justify-center h-48 text-gray-300 text-sm font-body">No certifications recorded yet</div>
+              ) : (
+                <ResponsiveContainer width="100%" height={Math.max(220, data!.certCounts.length * 38)}>
+                  <BarChart
+                    data={data!.certCounts}
+                    layout="vertical"
+                    margin={{ top: 4, right: 50, left: 8, bottom: 4 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
+                    <XAxis type="number" tick={{ fontSize: 11, fontFamily: 'Inter', fill: '#6b7280' }} allowDecimals={false} />
+                    <YAxis
+                      type="category"
+                      dataKey="name"
+                      tick={{ fontSize: 11, fontFamily: 'Inter', fill: '#374151' }}
+                      width={160}
+                    />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Bar dataKey="count" name="Employees" fill={BRAND.success} radius={[0, 4, 4, 0]} maxBarSize={22}>
+                      <LabelList
+                        dataKey="count"
+                        position="right"
+                        style={{ fontSize: 11, fill: '#374151', fontFamily: 'Inter', fontWeight: 600 }}
+                      />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </ChartCard>
           </>
         )}
       </div>

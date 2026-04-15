@@ -14,6 +14,7 @@ import {
   Download,
 } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
+import ExportModal from '../components/export/ExportModal';
 import { supabase } from '../lib/supabaseClient';
 import type { FormStatus } from '../types';
 
@@ -59,6 +60,7 @@ export default function TmgDashboardPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [gradeFilter, setGradeFilter] = useState('all');
   const [managerFilter, setManagerFilter] = useState('all');
+  const [showExportModal, setShowExportModal] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -146,30 +148,8 @@ export default function TmgDashboardPage() {
     { value: 'approved',       label: 'Approved' },
   ];
 
-  function handleExport() {
-    const headers = ['Name', 'Employee No.', 'Designation', 'Grade', 'Manager', 'Status', 'Last Updated'];
-    const csvRows = [
-      headers.join(','),
-      ...filtered.map((r) => [
-        `"${r.full_name}"`,
-        r.employee_number,
-        `"${r.designation}"`,
-        r.grade,
-        `"${r.manager_name}"`,
-        r.form_status ?? 'Not Started',
-        formatDate(r.form_updated_at),
-      ].join(','))
-    ];
-    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `skill-profiles-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
   return (
+    <>
     <AppShell>
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -178,7 +158,7 @@ export default function TmgDashboardPage() {
             <p className="text-sm text-gray-500 font-body mt-0.5">Monitor skill profile submissions across all employees.</p>
           </div>
           <button
-            onClick={handleExport}
+            onClick={() => setShowExportModal(true)}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-semibold font-heading text-gray-600 hover:bg-gray-50 transition-all shadow-sm"
           >
             <Download size={15} />
@@ -347,5 +327,10 @@ export default function TmgDashboardPage() {
         </div>
       </div>
     </AppShell>
+
+    {showExportModal && (
+      <ExportModal onClose={() => setShowExportModal(false)} />
+    )}
+    </>
   );
 }
