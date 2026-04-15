@@ -288,6 +288,7 @@ export default function DashboardPage() {
                 { label: 'Form Status',   desc: 'Track submission progress',        path: '/status',        roles: ['tmg', 'admin'] },
                 { label: 'Reports',       desc: 'Analytics and skill insights',     path: '/reports',       roles: ['management', 'admin'] },
                 { label: 'Users',         desc: 'Manage users and roles',           path: '/admin',         roles: ['admin'] },
+                { label: 'Settings',      desc: 'Manage form master data',          path: '/settings',      roles: ['tmg', 'admin'] },
                 { label: 'Power BI Guide', desc: 'Connect exports to Power BI',    path: '/help/powerbi',  roles: ['tmg', 'management', 'admin'] },
               ].filter((l) => user && l.roles.includes(user.role)).map((link) => (
                 <button

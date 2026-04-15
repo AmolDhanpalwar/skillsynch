@@ -10,6 +10,7 @@ import {
   ClipboardList,
   Activity,
   HelpCircle,
+  Settings,
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Logo from './Logo';
@@ -33,6 +34,7 @@ const navItems: NavItem[] = [
   { icon: BarChart2,       label: 'Reports',         path: '/reports',       roles: ['management', 'admin'] },
   { icon: Star,            label: 'Skills Matrix',  path: '/tmg-dashboard', roles: ['manager', 'tmg', 'management', 'admin'] },
   { icon: Users,           label: 'Users',           path: '/admin',         roles: ['admin'] },
+  { icon: Settings,        label: 'Settings',        path: '/settings',      roles: ['tmg', 'admin'] },
   { icon: HelpCircle,      label: 'Power BI Guide', path: '/help/powerbi',  roles: ['tmg', 'management', 'admin'] },
 ];
 
