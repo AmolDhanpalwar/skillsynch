@@ -283,8 +283,9 @@ export default function DashboardPage() {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {[
-                { label: 'Inbox',         desc: 'Review team skill forms',          path: '/inbox',         roles: ['manager', 'tmg', 'admin'] },
-                { label: 'TMG Dashboard', desc: 'View all employee skill profiles', path: '/tmg-dashboard', roles: ['tmg', 'admin'] },
+                { label: 'Inbox',         desc: 'Review team skill forms',          path: '/inbox',           roles: ['manager', 'tmg', 'admin'] },
+                { label: 'TMG Dashboard', desc: 'View all employee skill profiles', path: '/tmg-dashboard',   roles: ['tmg', 'admin'] },
+                { label: 'Skills Matrix', desc: 'Skill statistics across all staff',path: '/skills-matrix',   roles: ['manager', 'tmg', 'management', 'admin'] },
                 { label: 'Form Status',   desc: 'Track submission progress',        path: '/status',        roles: ['tmg', 'admin'] },
                 { label: 'Reports',       desc: 'Analytics and skill insights',     path: '/reports',       roles: ['management', 'admin'] },
                 { label: 'Users',         desc: 'Manage users and roles',           path: '/admin',         roles: ['admin'] },

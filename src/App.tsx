@@ -15,6 +15,7 @@ import ManagerReviewPage from './pages/ManagerReviewPage';
 import StatusPage from './pages/StatusPage';
 import PowerBiHelpPage from './pages/PowerBiHelpPage';
 import SettingsPage from './pages/SettingsPage';
+import SkillsMatrixPage from './pages/SkillsMatrixPage';
 import { seedUsersIfEmpty } from './lib/seedUsers';
 
 function RoleRoot() {
@@ -130,6 +131,14 @@ function AppRoutes() {
           element={
             <PrivateRoute allowedRoles={['tmg', 'admin']}>
               <SettingsPage />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/skills-matrix"
+          element={
+            <PrivateRoute allowedRoles={['manager', 'tmg', 'management', 'admin']}>
+              <SkillsMatrixPage />
             </PrivateRoute>
           }
         />
