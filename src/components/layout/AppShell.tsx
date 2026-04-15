@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
-import { NotificationProvider } from '../../context/NotificationContext';
 import BackToTop from '../ui/BackToTop';
 
 interface AppShellProps {
@@ -12,7 +11,7 @@ export default function AppShell({ children }: AppShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <NotificationProvider>
+    <>
       <div className="flex h-screen overflow-hidden bg-bglight">
         <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
@@ -25,6 +24,6 @@ export default function AppShell({ children }: AppShellProps) {
         </div>
       </div>
       <BackToTop />
-    </NotificationProvider>
+    </>
   );
 }
