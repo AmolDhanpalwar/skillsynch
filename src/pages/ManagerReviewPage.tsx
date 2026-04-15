@@ -1,0 +1,645 @@
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  RotateCcw,
+  Loader2,
+  X,
+  AlertTriangle,
+  Save,
+  User,
+  Briefcase,
+  Hash,
+  Star,
+  Clock,
+} from 'lucide-react';
+import AppShell from '../components/layout/AppShell';
+import StepIndicator from '../components/form/StepIndicator';
+import StatusBadge from '../components/form/StatusBadge';
+import Toast from '../components/form/Toast';
+import Step1Profile from './form/Step1Profile';
+import Step2SkillsManager from './form/Step2SkillsManager';
+import Step3CertificationsManager from './form/Step3CertificationsManager';
+import Step4PlansManager from './form/Step4PlansManager';
+import { supabase } from '../lib/supabaseClient';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import {
+  step1Schema,
+  FORM_STEPS,
+  SEED_LANGUAGES,
+  SEED_FRAMEWORKS,
+  makeSkillRow,
+  makeDefaultStep3,
+  makeDefaultStep4,
+} from '../types/form';
+import type {
+  Step1Values,
+  Step2Values,
+  Step3Values,
+  Step4Values,
+  SkillRow,
+  SkillRating,
+} from '../types/form';
+import type { FormStatus } from '../types';
+
+function makeDefaultStep2(): Step2Values {
+  return {
+    languages: SEED_LANGUAGES.map((n) => makeSkillRow(n, true)),
+    frameworks: SEED_FRAMEWORKS.map((n) => makeSkillRow(n, true)),
+    tools: '',
+    tools_manager_comment: '',
+    databases: '',
+    databases_manager_comment: '',
+  };
+}
+
+interface EmployeeHeaderProps {
+  form: ReturnType<typeof useForm<Step1Values>>;
+  formStatus: FormStatus;
+  employeeData: {
+    full_name: string;
+    email: string;
+    employee_number: string;
+    designation: string;
+    grade: string;
+    current_project: string;
+    total_exp?: number;
+    relevant_exp?: number;
+    haptiq_exp?: number;
+  };
+}
+
+function EmployeeHeader({ form: _form, formStatus, employeeData }: EmployeeHeaderProps) {
+  const fields = [
+    { icon: User, label: 'Name', value: employeeData.full_name },
+    { icon: Hash, label: 'Emp No.', value: employeeData.employee_number },
+    { icon: Briefcase, label: 'Designation', value: employeeData.designation },
+    { icon: Star, label: 'Grade', value: employeeData.grade },
+    { icon: Clock, label: 'Total Exp', value: employeeData.total_exp != null ? `${employeeData.total_exp} yrs` : '—' },
+    { icon: Clock, label: 'Haptiq Exp', value: employeeData.haptiq_exp != null ? `${employeeData.haptiq_exp} yrs` : '—' },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="w-5 h-5 rounded-full bg-primary-100 text-primary-600 flex items-center justify-center text-[10px] font-bold">1</span>
+        <h2 className="font-heading font-semibold text-base text-gray-800">Employee Profile</h2>
+        <StatusBadge status={formStatus} />
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        {fields.map((f) => (
+          <div key={f.label} className="flex flex-col gap-1 px-3.5 py-3 rounded-xl border border-gray-100 bg-gray-50">
+            <span className="flex items-center gap-1.5 text-[10px] font-heading font-semibold text-gray-400 uppercase tracking-wide">
+              <f.icon size={11} />
+              {f.label}
+            </span>
+            <span className="text-sm font-body text-gray-800 font-medium truncate">
+              {f.value || '—'}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="flex flex-col gap-1 px-3.5 py-3 rounded-xl border border-gray-100 bg-gray-50">
+          <span className="text-[10px] font-heading font-semibold text-gray-400 uppercase tracking-wide">Email</span>
+          <span className="text-sm font-body text-gray-800 truncate">{employeeData.email || '—'}</span>
+        </div>
+        <div className="flex flex-col gap-1 px-3.5 py-3 rounded-xl border border-gray-100 bg-gray-50">
+          <span className="text-[10px] font-heading font-semibold text-gray-400 uppercase tracking-wide">Current Project</span>
+          <span className="text-sm font-body text-gray-800 truncate">{employeeData.current_project || '—'}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface ReturnModalProps {
+  onConfirm: (reason: string) => void;
+  onCancel: () => void;
+  submitting: boolean;
+}
+
+function ReturnModal({ onConfirm, onCancel, submitting }: ReturnModalProps) {
+  const [reason, setReason] = useState('');
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onCancel} />
+      <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+        <button
+          onClick={onCancel}
+          className="absolute right-4 top-4 w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+        >
+          <X size={15} />
+        </button>
+        <div className="w-12 h-12 rounded-2xl bg-red-50 flex items-center justify-center mb-4">
+          <RotateCcw size={20} className="text-red-500" />
+        </div>
+        <h3 className="font-heading font-bold text-gray-900 text-lg mb-1">Return to Employee</h3>
+        <p className="text-sm text-gray-500 font-body mb-5">
+          Provide a reason for returning this form. The employee will be notified and can revise their submission.
+        </p>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          rows={4}
+          placeholder="e.g. Please update your manager ratings for Java and clarify your upskilling plan…"
+          className="w-full px-3.5 py-3 rounded-xl border border-gray-200 text-sm font-body text-gray-800 placeholder-gray-400 resize-none outline-none hover:border-red-300 focus:border-red-400 focus:ring-1 focus:ring-red-100 transition-colors mb-5"
+        />
+        <div className="flex items-center gap-3 justify-end">
+          <button
+            onClick={onCancel}
+            disabled={submitting}
+            className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold font-heading text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onConfirm(reason)}
+            disabled={submitting || reason.trim() === ''}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl border-2 border-red-400 text-red-600 hover:bg-red-50 text-sm font-semibold font-heading transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {submitting ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+            {submitting ? 'Returning…' : 'Return to Employee'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface ApproveModalProps {
+  employeeName: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  submitting: boolean;
+}
+
+function ApproveModal({ employeeName, onConfirm, onCancel, submitting }: ApproveModalProps) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onCancel} />
+      <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+        <button
+          onClick={onCancel}
+          className="absolute right-4 top-4 w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+        >
+          <X size={15} />
+        </button>
+        <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center mb-4">
+          <CheckCircle2 size={22} className="text-emerald-500" />
+        </div>
+        <h3 className="font-heading font-bold text-gray-900 text-lg mb-2">Approve Skill Profile?</h3>
+        <p className="text-sm text-gray-500 font-body leading-relaxed mb-6">
+          You are about to approve <span className="font-semibold text-gray-700">{employeeName}'s</span> Skill Profile.
+          All ratings and comments will be saved, the form will be locked, and the employee will be notified.
+        </p>
+        <div className="flex items-center gap-3 justify-end">
+          <button
+            onClick={onCancel}
+            disabled={submitting}
+            className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold font-heading text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={submitting}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold font-heading transition-all active:scale-[0.98] disabled:opacity-50"
+          >
+            {submitting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={15} />}
+            {submitting ? 'Approving…' : 'Approve'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface AlreadyApprovedBannerProps { employeeName: string }
+function AlreadyApprovedBanner({ employeeName }: AlreadyApprovedBannerProps) {
+  return (
+    <div className="flex items-center gap-3 px-5 py-3.5 bg-emerald-50 border-b border-emerald-100">
+      <CheckCircle2 size={18} className="text-emerald-500 shrink-0" />
+      <div>
+        <p className="text-sm font-semibold font-heading text-emerald-700">Form Approved</p>
+        <p className="text-xs text-emerald-600 font-body">
+          {employeeName}'s Skill Profile has been reviewed and approved. All fields are read-only.
+        </p>
+      </div>
+      <span className="ml-auto px-3 py-1 rounded-full border-2 border-emerald-300 text-emerald-600 text-[11px] font-bold font-heading tracking-widest uppercase">
+        APPROVED
+      </span>
+    </div>
+  );
+}
+
+export default function ManagerReviewPage() {
+  const { formId } = useParams<{ formId: string }>();
+  const navigate = useNavigate();
+
+  const [loading, setLoading] = useState(true);
+  const [currentStep, setCurrentStep] = useState(1);
+  const [formStatus, setFormStatus] = useState<FormStatus>('pending_review');
+  const [employeeId, setEmployeeId] = useState<string | null>(null);
+  const [employeeData, setEmployeeData] = useState({
+    full_name: '',
+    email: '',
+    employee_number: '',
+    designation: '',
+    grade: '',
+    current_project: '',
+    total_exp: undefined as number | undefined,
+    relevant_exp: undefined as number | undefined,
+    haptiq_exp: undefined as number | undefined,
+  });
+
+  const [step2, setStep2] = useState<Step2Values>(makeDefaultStep2);
+  const [step3, setStep3] = useState<Step3Values>(makeDefaultStep3);
+  const [step4, setStep4] = useState<Step4Values>(makeDefaultStep4);
+
+  const [showApproveModal, setShowApproveModal] = useState(false);
+  const [showReturnModal, setShowReturnModal] = useState(false);
+  const [actioning, setActioning] = useState(false);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
+
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMsg, setToastMsg] = useState('');
+
+  const isApproved = formStatus === 'approved';
+
+  const form = useForm<Step1Values>({
+    resolver: zodResolver(step1Schema),
+    defaultValues: {
+      full_name: '', email: '', employee_number: '',
+      designation: '', grade: '', current_project: '',
+      total_exp: undefined, relevant_exp: undefined, haptiq_exp: undefined,
+      manager_name: '', manager_email: '',
+    },
+  });
+
+  useEffect(() => {
+    if (!formId) return;
+    async function load() {
+      setLoading(true);
+      const { data: sf } = await supabase
+        .from('skill_forms')
+        .select('*, users!skill_forms_employee_id_fkey(id, full_name, email, employee_number, designation, grade)')
+        .eq('id', formId!)
+        .maybeSingle();
+
+      if (!sf) { navigate('/inbox'); return; }
+
+      setFormStatus(sf.status as FormStatus);
+      setEmployeeId(sf.employee_id);
+
+      const emp = sf.users as Record<string, unknown>;
+      const ed = {
+        full_name: (emp?.full_name as string) || '',
+        email: (emp?.email as string) || '',
+        employee_number: (emp?.employee_number as string) || '',
+        designation: (emp?.designation as string) || '',
+        grade: (emp?.grade as string) || '',
+        current_project: sf.current_project || '',
+        total_exp: sf.total_exp ?? undefined,
+        relevant_exp: sf.relevant_exp ?? undefined,
+        haptiq_exp: sf.haptiq_exp ?? undefined,
+      };
+      setEmployeeData(ed);
+
+      const { data: items } = await supabase
+        .from('skill_items')
+        .select('*')
+        .eq('form_id', formId!)
+        .order('sort_order');
+
+      const toRow = (item: Record<string, unknown>): SkillRow => ({
+        id: item.id as string,
+        name: item.name as string,
+        employee_rating: item.employee_rating as SkillRating | null,
+        manager_rating: item.manager_rating as SkillRating | null,
+        manager_comment: (item.manager_comment as string) || '',
+        is_seed:
+          SEED_LANGUAGES.includes(item.name as string) ||
+          SEED_FRAMEWORKS.includes(item.name as string),
+      });
+
+      if (items && items.length > 0) {
+        const langs = items.filter((i) => i.category === 'language').map(toRow);
+        const frams = items.filter((i) => i.category === 'framework').map(toRow);
+        setStep2({
+          languages: langs.length > 0 ? langs : SEED_LANGUAGES.map((n) => makeSkillRow(n, true)),
+          frameworks: frams.length > 0 ? frams : SEED_FRAMEWORKS.map((n) => makeSkillRow(n, true)),
+          tools: sf.tools || '',
+          tools_manager_comment: sf.tools_manager_comment || '',
+          databases: sf.databases || '',
+          databases_manager_comment: sf.databases_manager_comment || '',
+        });
+      } else {
+        setStep2((prev) => ({
+          ...prev,
+          tools: sf.tools || '',
+          tools_manager_comment: sf.tools_manager_comment || '',
+          databases: sf.databases || '',
+          databases_manager_comment: sf.databases_manager_comment || '',
+        }));
+      }
+
+      const rawCerts = sf.certifications as string[] | null;
+      setStep3({
+        certifications: rawCerts && rawCerts.length > 0 ? rawCerts : [''],
+        certifications_manager_comment: '',
+      });
+
+      setStep4({
+        upskilling_plan: sf.upskilling_plan || '',
+        manager_expectation_plan: sf.manager_expectation_plan || '',
+      });
+
+      setLoading(false);
+    }
+    load();
+  }, [formId, navigate]);
+
+  function showToast(msg: string) {
+    setToastMsg(msg);
+    setToastVisible(true);
+    setTimeout(() => setToastVisible(false), 3000);
+  }
+
+  async function saveManagerInputs(statusOverride?: FormStatus) {
+    if (!formId) return false;
+
+    const allItems = [
+      ...step2.languages.map((r, i) => ({
+        form_id: formId,
+        category: 'language' as const,
+        name: r.name,
+        employee_rating: r.employee_rating,
+        manager_rating: r.manager_rating,
+        manager_comment: r.manager_comment,
+        sort_order: i,
+      })),
+      ...step2.frameworks.map((r, i) => ({
+        form_id: formId,
+        category: 'framework' as const,
+        name: r.name,
+        employee_rating: r.employee_rating,
+        manager_rating: r.manager_rating,
+        manager_comment: r.manager_comment,
+        sort_order: i,
+      })),
+    ].filter((item) => item.name.trim() !== '');
+
+    await supabase.from('skill_items').delete().eq('form_id', formId);
+    if (allItems.length > 0) await supabase.from('skill_items').insert(allItems);
+
+    const patch: Record<string, unknown> = {
+      tools_manager_comment: step2.tools_manager_comment,
+      databases_manager_comment: step2.databases_manager_comment,
+      upskilling_plan: step4.upskilling_plan,
+      manager_expectation_plan: step4.manager_expectation_plan,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (statusOverride) {
+      patch.status = statusOverride;
+      if (statusOverride === 'approved') patch.approved_at = new Date().toISOString();
+    }
+
+    const { error } = await supabase.from('skill_forms').update(patch).eq('id', formId);
+    return !error;
+  }
+
+  async function handleSave() {
+    setSaveState('saving');
+    const ok = await saveManagerInputs();
+    if (ok) {
+      setSaveState('saved');
+      showToast('Progress saved');
+      setTimeout(() => setSaveState('idle'), 2000);
+    } else {
+      setSaveState('idle');
+      showToast('Save failed — please retry.');
+    }
+  }
+
+  async function handleApprove() {
+    setActioning(true);
+    const ok = await saveManagerInputs('approved');
+    if (!ok) {
+      setActioning(false);
+      showToast('Approval failed — please retry.');
+      return;
+    }
+    setFormStatus('approved');
+
+    if (employeeId) {
+      await supabase.from('notifications').insert({
+        user_id: employeeId,
+        type: 'form_approved',
+        message: 'Your Skill Profile has been approved.',
+        form_id: formId,
+      });
+    }
+
+    setActioning(false);
+    setShowApproveModal(false);
+    navigate('/inbox', { state: { toast: `${employeeData.full_name}'s Skill Profile approved!` } });
+  }
+
+  async function handleReturn(reason: string) {
+    setActioning(true);
+    const ok = await saveManagerInputs('returned');
+    if (!ok) {
+      setActioning(false);
+      showToast('Action failed — please retry.');
+      return;
+    }
+    setFormStatus('returned');
+
+    if (employeeId) {
+      await supabase.from('notifications').insert({
+        user_id: employeeId,
+        type: 'form_returned',
+        message: `Your Skill Profile was returned for revision. Reason: ${reason}`,
+        form_id: formId,
+      });
+    }
+
+    setActioning(false);
+    setShowReturnModal(false);
+    navigate('/inbox', { state: { toast: `Form returned to ${employeeData.full_name} for revision.` } });
+  }
+
+  const isLastStep = currentStep === FORM_STEPS.length;
+
+  if (loading) {
+    return (
+      <AppShell>
+        <div className="flex items-center justify-center h-64">
+          <Loader2 size={28} className="animate-spin text-primary-400" />
+        </div>
+      </AppShell>
+    );
+  }
+
+  return (
+    <>
+      <AppShell>
+        <div className="max-w-3xl mx-auto space-y-6 pb-28">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate('/inbox')}
+              className="w-8 h-8 rounded-xl border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-50 hover:border-gray-300 transition-colors shrink-0"
+            >
+              <ArrowLeft size={15} />
+            </button>
+            <div className="flex-1 min-w-0">
+              <h1 className="font-heading font-bold text-xl text-gray-900 truncate">
+                Reviewing: {employeeData.full_name || 'Employee'}
+              </h1>
+              <p className="text-xs text-gray-400 font-body">
+                {employeeData.designation}
+                {employeeData.grade ? ` · ${employeeData.grade}` : ''}
+              </p>
+            </div>
+            <StatusBadge status={formStatus} />
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-sm shadow-gray-200/80 border border-gray-100 overflow-hidden">
+            {isApproved && <AlreadyApprovedBanner employeeName={employeeData.full_name} />}
+
+            {!isApproved && (
+              <div className="flex items-center gap-2 px-5 py-3 bg-amber-50 border-b border-amber-100">
+                <AlertTriangle size={14} className="text-amber-500 shrink-0" />
+                <p className="text-xs text-amber-700 font-body">
+                  You are in <span className="font-semibold">manager review mode</span>. Amber fields are editable by you; grey fields are employee-only.
+                </p>
+              </div>
+            )}
+
+            <div className="px-6 pt-6 pb-5 border-b border-gray-100">
+              <StepIndicator currentStep={currentStep} />
+              <div className="flex items-center justify-between mt-5">
+                <p className="text-xs text-gray-400 font-body">
+                  Step <span className="font-semibold text-gray-600">{currentStep}</span> of{' '}
+                  <span className="font-semibold text-gray-600">{FORM_STEPS.length}</span>
+                  {' — '}
+                  <span className="text-primary-500 font-medium font-heading">
+                    {FORM_STEPS.find((s) => s.number === currentStep)?.label}
+                  </span>
+                </p>
+                <p className="text-[10px] text-gray-400 font-body font-mono">
+                  #{formId?.slice(0, 8)}
+                </p>
+              </div>
+            </div>
+
+            <div className="px-6 py-7">
+              {currentStep === 1 && (
+                <EmployeeHeader form={form} formStatus={formStatus} employeeData={employeeData} />
+              )}
+              {currentStep === 2 && (
+                <Step2SkillsManager
+                  values={step2}
+                  onChange={isApproved ? () => {} : setStep2}
+                />
+              )}
+              {currentStep === 3 && (
+                <Step3CertificationsManager
+                  values={step3}
+                  onChange={isApproved ? () => {} : setStep3}
+                />
+              )}
+              {currentStep === 4 && (
+                <Step4PlansManager
+                  values={step4}
+                  onChange={isApproved ? () => {} : setStep4}
+                />
+              )}
+            </div>
+
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex items-center gap-2">
+              {currentStep > 1 && (
+                <button
+                  onClick={() => { setCurrentStep(currentStep - 1); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold font-heading text-gray-600 hover:bg-white hover:border-gray-300 transition-all"
+                >
+                  <ArrowLeft size={14} /> Back
+                </button>
+              )}
+              {!isApproved && (
+                <button
+                  onClick={handleSave}
+                  disabled={saveState === 'saving'}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold font-heading text-gray-600 hover:bg-white hover:border-gray-300 transition-all disabled:opacity-50"
+                >
+                  {saveState === 'saving' ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                  {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved!' : 'Save Progress'}
+                </button>
+              )}
+              {!isLastStep && (
+                <button
+                  onClick={() => { setCurrentStep(currentStep + 1); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                  className="ml-auto flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white text-sm font-semibold font-heading transition-all active:scale-[0.98]"
+                >
+                  Next <ArrowRight size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {!isApproved && (
+          <div className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 shadow-xl shadow-black/5">
+            <div className="max-w-3xl mx-auto px-6 py-4 flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold font-heading text-gray-800 truncate">
+                  {employeeData.full_name}
+                </p>
+                <p className="text-xs text-gray-400 font-body">
+                  Pending your review
+                </p>
+              </div>
+              <button
+                onClick={() => setShowReturnModal(true)}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 border-red-400 text-red-600 hover:bg-red-50 text-sm font-semibold font-heading transition-all active:scale-[0.98]"
+              >
+                <RotateCcw size={14} />
+                Return to Employee
+              </button>
+              <button
+                onClick={() => setShowApproveModal(true)}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold font-heading transition-all active:scale-[0.98]"
+              >
+                <CheckCircle2 size={15} />
+                Approve
+              </button>
+            </div>
+          </div>
+        )}
+      </AppShell>
+
+      {showApproveModal && (
+        <ApproveModal
+          employeeName={employeeData.full_name}
+          onConfirm={handleApprove}
+          onCancel={() => setShowApproveModal(false)}
+          submitting={actioning}
+        />
+      )}
+      {showReturnModal && (
+        <ReturnModal
+          onConfirm={handleReturn}
+          onCancel={() => setShowReturnModal(false)}
+          submitting={actioning}
+        />
+      )}
+
+      <Toast message={toastMsg} visible={toastVisible} onDismiss={() => setToastVisible(false)} />
+    </>
+  );
+}
