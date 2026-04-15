@@ -14,6 +14,7 @@ import {
   Shield,
 } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
+import { SkeletonTableRows } from '../components/ui/Skeleton';
 import { supabase } from '../lib/supabaseClient';
 import { seedUsersIfEmpty } from '../lib/seedUsers';
 import type { UserRole } from '../types';
@@ -308,8 +309,10 @@ export default function AdminPage() {
           </div>
 
           {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <Loader2 size={24} className="animate-spin text-primary-300" />
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <tbody><SkeletonTableRows rows={6} cols={5} /></tbody>
+              </table>
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center px-6">

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
 import Toast from '../components/form/Toast';
+import { SkeletonListItem } from '../components/ui/Skeleton';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import type { FormStatus } from '../types';
@@ -224,8 +225,8 @@ export default function InboxPage() {
           </div>
 
           {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <Loader2 size={24} className="animate-spin text-primary-300" />
+            <div className="divide-y divide-gray-50">
+              {Array.from({ length: 4 }).map((_, i) => <SkeletonListItem key={i} />)}
             </div>
           ) : filtered.length === 0 ? (
             <EmptyState filtered={filter !== 'all'} />

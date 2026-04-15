@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
 import Toast from '../components/form/Toast';
+import { Skeleton } from '../components/ui/Skeleton';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -165,8 +166,15 @@ export default function DashboardPage() {
 
           <div className="px-6 py-5 space-y-5">
             {loadingForm ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="w-6 h-6 border-2 border-primary-200 border-t-primary-500 rounded-full animate-spin" />
+              <div className="space-y-3 py-2">
+                <Skeleton className="h-3 w-32" />
+                <Skeleton className="h-2.5 w-full rounded-full" />
+                <div className="flex gap-4 pt-1">
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className="h-3 w-16" />
+                  <Skeleton className="h-3 w-18" />
+                </div>
+                <Skeleton className="h-9 w-40 rounded-xl mt-3" />
               </div>
             ) : (
               <>

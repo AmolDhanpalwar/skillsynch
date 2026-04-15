@@ -2,6 +2,7 @@ import { useState } from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import { NotificationProvider } from '../../context/NotificationContext';
+import BackToTop from '../ui/BackToTop';
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -23,6 +24,7 @@ export default function AppShell({ children }: AppShellProps) {
           </main>
         </div>
       </div>
+      <BackToTop />
     </NotificationProvider>
   );
 }

@@ -51,12 +51,6 @@ const STATUS_LABELS: Record<FormStatus, string> = {
   draft:          'Draft',
 };
 
-interface SkillEntry {
-  name: string;
-  employee_rating: number | null;
-  manager_rating: number | null;
-}
-
 interface AnalyticsData {
   statusBreakdown: { name: string; value: number; color: string }[];
   topLanguages: { name: string; avgMgrRating: number }[];
@@ -75,24 +69,11 @@ function avg(nums: number[]): number {
   return Math.round((nums.reduce((s, n) => s + n, 0) / nums.length) * 100) / 100;
 }
 
-function parseSkills(step2: Record<string, unknown> | null, field: 'languages' | 'frameworks'): SkillEntry[] {
-  if (!step2) return [];
-  const arr = step2[field];
-  if (!Array.isArray(arr)) return [];
-  return arr as SkillEntry[];
-}
-
-function parseCerts(step3: Record<string, unknown> | null): string[] {
-  if (!step3) return [];
-  const certs = step3.certifications;
-  if (!Array.isArray(certs)) return [];
-  return (certs as string[]).filter((c) => c && c.trim().length > 0);
-}
-
 async function fetchAnalyticsData(): Promise<AnalyticsData> {
-  const [{ count: totalEmployees }, { data: formsRaw }] = await Promise.all([
+  const [{ count: totalEmployees }, { data: formsRaw }, { data: skillItemsRaw }] = await Promise.all([
     supabase.from('users').select('*', { count: 'exact', head: true }).eq('role', 'employee'),
-    supabase.from('skill_forms').select('status, step2_data, step3_data'),
+    supabase.from('skill_forms').select('id, status, certifications'),
+    supabase.from('skill_items').select('form_id, category, name, employee_rating, manager_rating'),
   ]);
 
   const forms = formsRaw ?? [];
@@ -108,35 +89,31 @@ async function fetchAnalyticsData(): Promise<AnalyticsData> {
     .map((k) => ({ name: STATUS_LABELS[k], value: statusCounts[k], color: STATUS_COLORS[k] }));
 
   const langMap: Record<string, number[]> = {};
-  const fwkMap:  Record<string, { mgr: number[] }> = {};
+  const fwkMap:  Record<string, number[]> = {};
   const skillCombined: Record<string, { self: number[]; mgr: number[] }> = {};
   const certMap: Record<string, number> = {};
 
+  (skillItemsRaw ?? []).forEach((item) => {
+    const name = item.name?.trim();
+    if (!name) return;
+    if (!skillCombined[name]) skillCombined[name] = { self: [], mgr: [] };
+    if (item.employee_rating !== null) skillCombined[name].self.push(item.employee_rating);
+    if (item.manager_rating  !== null) skillCombined[name].mgr.push(item.manager_rating);
+
+    if (item.category === 'language') {
+      if (!langMap[name]) langMap[name] = [];
+      if (item.manager_rating !== null) langMap[name].push(item.manager_rating);
+    } else if (item.category === 'framework') {
+      if (!fwkMap[name]) fwkMap[name] = [];
+      if (item.manager_rating !== null) fwkMap[name].push(item.manager_rating);
+    }
+  });
+
   forms.forEach((f) => {
-    const s2 = f.step2_data as Record<string, unknown> | null;
-    const s3 = f.step3_data as Record<string, unknown> | null;
-
-    parseSkills(s2, 'languages').forEach((skill) => {
-      if (!skill.name) return;
-      if (!langMap[skill.name]) langMap[skill.name] = [];
-      if (skill.manager_rating !== null) langMap[skill.name].push(skill.manager_rating);
-      if (!skillCombined[skill.name]) skillCombined[skill.name] = { self: [], mgr: [] };
-      if (skill.employee_rating !== null) skillCombined[skill.name].self.push(skill.employee_rating);
-      if (skill.manager_rating !== null)  skillCombined[skill.name].mgr.push(skill.manager_rating);
-    });
-
-    parseSkills(s2, 'frameworks').forEach((skill) => {
-      if (!skill.name) return;
-      if (!fwkMap[skill.name]) fwkMap[skill.name] = { mgr: [] };
-      if (skill.manager_rating !== null) fwkMap[skill.name].mgr.push(skill.manager_rating);
-      if (!skillCombined[skill.name]) skillCombined[skill.name] = { self: [], mgr: [] };
-      if (skill.employee_rating !== null) skillCombined[skill.name].self.push(skill.employee_rating);
-      if (skill.manager_rating !== null)  skillCombined[skill.name].mgr.push(skill.manager_rating);
-    });
-
-    parseCerts(s3).forEach((cert) => {
+    const certs = f.certifications as string[] | null;
+    if (!Array.isArray(certs)) return;
+    certs.filter((c) => c?.trim()).forEach((cert) => {
       const key = cert.trim();
-      if (!key) return;
       certMap[key] = (certMap[key] ?? 0) + 1;
     });
   });
@@ -148,7 +125,7 @@ async function fetchAnalyticsData(): Promise<AnalyticsData> {
     .slice(0, 10);
 
   const topFrameworks = Object.entries(fwkMap)
-    .map(([name, { mgr }]) => ({ name, avgMgrRating: avg(mgr) }))
+    .map(([name, ratings]) => ({ name, avgMgrRating: avg(ratings) }))
     .filter((x) => x.avgMgrRating > 0)
     .sort((a, b) => b.avgMgrRating - a.avgMgrRating)
     .slice(0, 10);

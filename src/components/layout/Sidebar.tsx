@@ -3,12 +3,13 @@ import {
   Inbox,
   Users,
   BarChart2,
-  Settings,
   Star,
   X,
   LogOut,
   TrendingUp,
   ClipboardList,
+  Activity,
+  HelpCircle,
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Logo from './Logo';
@@ -24,14 +25,15 @@ type NavItem = {
 };
 
 const navItems: NavItem[] = [
-  { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard', roles: ['employee', 'manager', 'tmg', 'management', 'admin'] },
-  { icon: ClipboardList, label: 'My Skill Form', path: '/form', roles: ['employee'] },
-  { icon: Inbox, label: 'Inbox', path: '/inbox', roles: ['manager', 'tmg', 'admin'] },
-  { icon: TrendingUp, label: 'TMG Dashboard', path: '/tmg-dashboard', roles: ['tmg', 'admin'] },
-  { icon: BarChart2, label: 'Reports', path: '/reports', roles: ['management', 'admin'] },
-  { icon: Users, label: 'Users', path: '/admin', roles: ['admin'] },
-  { icon: Star, label: 'Skills Matrix', path: '/dashboard', roles: ['manager', 'tmg', 'management', 'admin'] },
-  { icon: Settings, label: 'Admin Panel', path: '/admin', roles: ['admin'] },
+  { icon: LayoutDashboard, label: 'Dashboard',      path: '/dashboard',     roles: ['employee', 'manager', 'tmg', 'management', 'admin'] },
+  { icon: ClipboardList,   label: 'My Skill Form',  path: '/form',          roles: ['employee'] },
+  { icon: Inbox,           label: 'Inbox',           path: '/inbox',         roles: ['manager', 'tmg', 'admin'] },
+  { icon: TrendingUp,      label: 'TMG Dashboard',  path: '/tmg-dashboard', roles: ['tmg', 'admin'] },
+  { icon: Activity,        label: 'Form Status',    path: '/status',        roles: ['tmg', 'admin'] },
+  { icon: BarChart2,       label: 'Reports',         path: '/reports',       roles: ['management', 'admin'] },
+  { icon: Star,            label: 'Skills Matrix',  path: '/dashboard',     roles: ['manager', 'tmg', 'management', 'admin'] },
+  { icon: Users,           label: 'Users',           path: '/admin',         roles: ['admin'] },
+  { icon: HelpCircle,      label: 'Power BI Guide', path: '/help/powerbi',  roles: ['tmg', 'management', 'admin'] },
 ];
 
 interface SidebarProps {
@@ -45,11 +47,15 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
   const location = useLocation();
 
   const role = user?.role ?? 'employee';
-  const visibleItems = navItems.filter(
-    (item, index, self) =>
-      item.roles.includes(role) &&
-      self.findIndex((i) => i.path === item.path && i.label === item.label) === index
-  );
+
+  const uniqueKeys = new Set<string>();
+  const visibleItems = navItems.filter((item) => {
+    if (!item.roles.includes(role)) return false;
+    const key = `${item.label}:${item.path}`;
+    if (uniqueKeys.has(key)) return false;
+    uniqueKeys.add(key);
+    return true;
+  });
 
   function handleNav(path: string) {
     navigate(path);

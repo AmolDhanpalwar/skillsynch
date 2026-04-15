@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
 import ExportModal from '../components/export/ExportModal';
+import { SkeletonTableRows } from '../components/ui/Skeleton';
 import { supabase } from '../lib/supabaseClient';
 import type { FormStatus } from '../types';
 
@@ -236,8 +237,10 @@ export default function TmgDashboardPage() {
           </div>
 
           {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <Loader2 size={24} className="animate-spin text-primary-300" />
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <tbody><SkeletonTableRows rows={6} cols={6} /></tbody>
+              </table>
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center px-6">

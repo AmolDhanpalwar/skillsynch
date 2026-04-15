@@ -8,18 +8,30 @@ export interface ExportFilters {
   status?: FormStatus | 'all' | 'not_started';
 }
 
-interface RawFormRow {
+interface SkillItem {
+  category: 'language' | 'framework';
+  name: string;
+  employee_rating: number | null;
+  manager_rating: number | null;
+}
+
+interface FormRecord {
   id: string;
   status: string;
   submitted_at: string | null;
   approved_at: string | null;
   updated_at: string;
   reminders_sent: number;
-  step1_data: Record<string, unknown> | null;
-  step2_data: Record<string, unknown> | null;
-  step3_data: Record<string, unknown> | null;
-  step4_data: Record<string, unknown> | null;
   manager_review_date: string | null;
+  total_exp: number | null;
+  relevant_exp: number | null;
+  haptiq_exp: number | null;
+  current_project: string | null;
+  tools: string | null;
+  databases: string | null;
+  certifications: string[] | null;
+  upskilling_plan: string | null;
+  manager_expectation_plan: string | null;
   employee: {
     id: string;
     full_name: string;
@@ -29,6 +41,7 @@ interface RawFormRow {
     grade: string;
     manager_name: string;
   };
+  skills: SkillItem[];
 }
 
 const NAVY = '1A3C5E';
@@ -72,35 +85,23 @@ function daysPending(submittedAt: string | null, approvedAt: string | null): num
   return Math.max(0, Math.floor((end.getTime() - start.getTime()) / 86_400_000));
 }
 
-function safeStr(val: unknown): string {
+function safeStr(val: string | number | null | undefined): string {
   if (val === null || val === undefined) return '';
   return String(val);
 }
 
-function joinArr(val: unknown): string {
-  if (Array.isArray(val)) return val.filter(Boolean).join('; ');
-  if (typeof val === 'string') return val;
-  return '';
-}
-
-function skillNames(rows: unknown[]): string {
-  if (!Array.isArray(rows)) return '';
-  return rows.map((r: unknown) => safeStr((r as Record<string, unknown>)?.name)).filter(Boolean).join('; ');
-}
-
-function skillRatings(rows: unknown[], field: 'employee_rating' | 'manager_rating'): string {
-  if (!Array.isArray(rows)) return '';
-  return rows.map((r: unknown) => {
-    const v = (r as Record<string, unknown>)?.[field];
-    return v !== null && v !== undefined ? String(v) : '';
-  }).join('; ');
+function titleCase(s: string): string {
+  return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export async function exportToExcel(filters: ExportFilters = {}): Promise<void> {
   let query = supabase
     .from('skill_forms')
     .select(
-      'id, status, submitted_at, approved_at, updated_at, reminders_sent, step1_data, step2_data, step3_data, step4_data, manager_review_date, users!skill_forms_employee_id_fkey(id, full_name, email, employee_number, designation, grade, manager_id)'
+      `id, status, submitted_at, approved_at, updated_at, reminders_sent, manager_review_date,
+       total_exp, relevant_exp, haptiq_exp, current_project, tools, databases,
+       certifications, upskilling_plan, manager_expectation_plan,
+       users!skill_forms_employee_id_fkey(id, full_name, email, employee_number, designation, grade, manager_id)`
     )
     .order('updated_at', { ascending: false });
 
@@ -127,7 +128,28 @@ export async function exportToExcel(filters: ExportFilters = {}): Promise<void> 
     if (mgrs) managersMap = Object.fromEntries(mgrs.map((m) => [m.id, m.full_name]));
   }
 
-  const forms: RawFormRow[] = (formsRaw ?? []).map((f) => {
+  const formIds = (formsRaw ?? []).map((f) => f.id);
+  let skillsMap: Record<string, SkillItem[]> = {};
+  if (formIds.length > 0) {
+    const { data: itemsRaw } = await supabase
+      .from('skill_items')
+      .select('form_id, category, name, employee_rating, manager_rating, sort_order')
+      .in('form_id', formIds)
+      .order('sort_order');
+    if (itemsRaw) {
+      itemsRaw.forEach((item) => {
+        if (!skillsMap[item.form_id]) skillsMap[item.form_id] = [];
+        skillsMap[item.form_id].push({
+          category: item.category as 'language' | 'framework',
+          name: item.name,
+          employee_rating: item.employee_rating,
+          manager_rating: item.manager_rating,
+        });
+      });
+    }
+  }
+
+  const forms: FormRecord[] = (formsRaw ?? []).map((f) => {
     const u = f.users as Record<string, unknown> | null;
     return {
       id: f.id,
@@ -136,20 +158,26 @@ export async function exportToExcel(filters: ExportFilters = {}): Promise<void> 
       approved_at: f.approved_at ?? null,
       updated_at: f.updated_at,
       reminders_sent: f.reminders_sent ?? 0,
-      step1_data: f.step1_data as Record<string, unknown> | null,
-      step2_data: f.step2_data as Record<string, unknown> | null,
-      step3_data: f.step3_data as Record<string, unknown> | null,
-      step4_data: f.step4_data as Record<string, unknown> | null,
       manager_review_date: f.manager_review_date ?? null,
+      total_exp: f.total_exp ?? null,
+      relevant_exp: f.relevant_exp ?? null,
+      haptiq_exp: f.haptiq_exp ?? null,
+      current_project: f.current_project ?? null,
+      tools: f.tools ?? null,
+      databases: f.databases ?? null,
+      certifications: (f.certifications as string[] | null) ?? null,
+      upskilling_plan: f.upskilling_plan ?? null,
+      manager_expectation_plan: f.manager_expectation_plan ?? null,
       employee: {
-        id: safeStr(u?.id),
-        full_name: safeStr(u?.full_name),
-        email: safeStr(u?.email),
-        employee_number: safeStr(u?.employee_number),
-        designation: safeStr(u?.designation),
-        grade: safeStr(u?.grade),
+        id: safeStr(u?.id as string),
+        full_name: safeStr(u?.full_name as string),
+        email: safeStr(u?.email as string),
+        employee_number: safeStr(u?.employee_number as string),
+        designation: safeStr(u?.designation as string),
+        grade: safeStr(u?.grade as string),
         manager_name: u?.manager_id ? (managersMap[u.manager_id as string] || '') : '',
       },
+      skills: skillsMap[f.id] ?? [],
     };
   });
 
@@ -160,7 +188,7 @@ export async function exportToExcel(filters: ExportFilters = {}): Promise<void> 
       .eq('role', 'employee');
 
     const formEmployeeIds = new Set(forms.map((f) => f.employee.id));
-    const notStarted: RawFormRow[] = (employees ?? [])
+    const notStarted: FormRecord[] = (employees ?? [])
       .filter((e) => !formEmployeeIds.has(e.id))
       .map((e) => ({
         id: '',
@@ -169,11 +197,16 @@ export async function exportToExcel(filters: ExportFilters = {}): Promise<void> 
         approved_at: null,
         updated_at: '',
         reminders_sent: 0,
-        step1_data: null,
-        step2_data: null,
-        step3_data: null,
-        step4_data: null,
         manager_review_date: null,
+        total_exp: null,
+        relevant_exp: null,
+        haptiq_exp: null,
+        current_project: null,
+        tools: null,
+        databases: null,
+        certifications: null,
+        upskilling_plan: null,
+        manager_expectation_plan: null,
         employee: {
           id: e.id,
           full_name: e.full_name,
@@ -183,6 +216,7 @@ export async function exportToExcel(filters: ExportFilters = {}): Promise<void> 
           grade: e.grade || '',
           manager_name: e.manager_id ? (managersMap[e.manager_id] || '') : '',
         },
+        skills: [],
       }));
     forms.push(...notStarted);
   }
@@ -202,36 +236,32 @@ export async function exportToExcel(filters: ExportFilters = {}): Promise<void> 
 
   const sheet1Data: unknown[][] = [sheet1Headers];
   forms.forEach((f) => {
-    const s1 = f.step1_data ?? {};
-    const s2 = f.step2_data ?? {};
-    const s3 = f.step3_data ?? {};
-    const s4 = f.step4_data ?? {};
-    const langs = (s2.languages as unknown[]) ?? [];
-    const fwks  = (s2.frameworks as unknown[]) ?? [];
+    const langs = f.skills.filter((s) => s.category === 'language');
+    const fwks  = f.skills.filter((s) => s.category === 'framework');
 
     sheet1Data.push([
       f.employee.full_name,
       f.employee.email,
       f.employee.employee_number,
-      safeStr(s1.designation) || f.employee.designation,
-      safeStr(s1.grade) || f.employee.grade,
-      safeStr(s1.total_exp),
-      safeStr(s1.relevant_exp),
-      safeStr(s1.haptiq_exp),
-      safeStr(s1.current_project),
-      safeStr(s1.manager_name) || f.employee.manager_name,
-      skillNames(langs),
-      skillRatings(langs, 'employee_rating'),
-      skillRatings(langs, 'manager_rating'),
-      skillNames(fwks),
-      skillRatings(fwks, 'employee_rating'),
-      skillRatings(fwks, 'manager_rating'),
-      safeStr(s2.tools),
-      safeStr(s2.databases),
-      joinArr(s3.certifications),
-      safeStr(s4.upskilling_plan),
-      safeStr(s4.manager_expectation_plan),
-      f.status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+      f.employee.designation,
+      f.employee.grade,
+      safeStr(f.total_exp),
+      safeStr(f.relevant_exp),
+      safeStr(f.haptiq_exp),
+      safeStr(f.current_project),
+      f.employee.manager_name,
+      langs.map((s) => s.name).join('; '),
+      langs.map((s) => safeStr(s.employee_rating)).join('; '),
+      langs.map((s) => safeStr(s.manager_rating)).join('; '),
+      fwks.map((s) => s.name).join('; '),
+      fwks.map((s) => safeStr(s.employee_rating)).join('; '),
+      fwks.map((s) => safeStr(s.manager_rating)).join('; '),
+      safeStr(f.tools),
+      safeStr(f.databases),
+      (f.certifications ?? []).filter(Boolean).join('; '),
+      safeStr(f.upskilling_plan),
+      safeStr(f.manager_expectation_plan),
+      titleCase(f.status),
       formatDate(f.submitted_at),
       formatDate(f.approved_at),
     ]);
@@ -254,7 +284,7 @@ export async function exportToExcel(filters: ExportFilters = {}): Promise<void> 
       f.employee.full_name,
       f.employee.email,
       f.employee.manager_name,
-      f.status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+      titleCase(f.status),
       formatDate(f.submitted_at),
       formatDate(f.manager_review_date),
       daysPending(f.submitted_at, f.approved_at),
