@@ -1,6 +1,9 @@
+import { useState } from 'react';
 import { Bell, Menu, Search, LogOut } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useNotifications } from '../../context/NotificationContext';
 import { getInitials, getRoleLabel } from '../../types';
+import NotificationDrawer from '../notifications/NotificationDrawer';
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -8,12 +11,15 @@ interface HeaderProps {
 
 export default function Header({ onMenuClick }: HeaderProps) {
   const { user, signOut } = useAuth();
+  const { unreadCount } = useNotifications();
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const initials = user ? getInitials(user.full_name || user.email) : '?';
   const displayName = user?.full_name || user?.email || '';
   const roleLabel = user ? getRoleLabel(user.role) : '';
 
   return (
+    <>
     <header className="h-16 bg-white border-b border-gray-200 flex items-center px-4 md:px-6 gap-4 shrink-0 sticky top-0 z-10">
       <button
         onClick={onMenuClick}
@@ -34,9 +40,19 @@ export default function Header({ onMenuClick }: HeaderProps) {
       </div>
 
       <div className="flex items-center gap-2 md:gap-3">
-        <button className="relative p-2 rounded-lg text-gray-500 hover:text-primary-500 hover:bg-bglight transition-colors">
+        <button
+          onClick={() => setDrawerOpen(true)}
+          className="relative p-2 rounded-lg text-gray-500 hover:text-primary-500 hover:bg-bglight transition-colors"
+          aria-label="Open notifications"
+        >
           <Bell size={20} />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-accent-500 ring-2 ring-white" />
+          {unreadCount > 0 ? (
+            <span className="absolute top-0.5 right-0.5 min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[10px] font-bold font-heading flex items-center justify-center px-1 ring-2 ring-white">
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </span>
+          ) : (
+            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-accent-500 ring-2 ring-white" />
+          )}
         </button>
 
         <div className="flex items-center gap-2.5 group relative">
@@ -58,5 +74,8 @@ export default function Header({ onMenuClick }: HeaderProps) {
         </div>
       </div>
     </header>
+
+    <NotificationDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+    </>
   );
 }
