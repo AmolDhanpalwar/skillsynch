@@ -26,8 +26,8 @@ interface SkillForm {
   status: FormStatus;
   updated_at: string;
   submitted_at: string | null;
-  step1_data: Record<string, unknown> | null;
-  step2_data: Record<string, unknown> | null;
+  total_exp: number | null;
+  current_project: string | null;
 }
 
 const STATUS_CONFIG: Record<
@@ -64,11 +64,19 @@ function formatDate(iso: string | null): string {
 
 function calcCompletion(form: SkillForm | null): number {
   if (!form) return 0;
-  let score = 0;
-  if (form.step1_data) score += 40;
-  if (form.step2_data) score += 40;
+  let score = 20;
+  if (form.total_exp !== null) score += 30;
+  if (form.current_project) score += 30;
   if (form.status === 'pending_review' || form.status === 'approved') score += 20;
   return Math.min(score, 100);
+}
+
+function calcSteps(form: SkillForm | null) {
+  return [
+    { label: 'Profile Info', done: !!(form?.total_exp !== null && form?.total_exp !== undefined) },
+    { label: 'Skills',       done: !!(form?.current_project) },
+    { label: 'Submitted',    done: form?.status === 'pending_review' || form?.status === 'approved' },
+  ];
 }
 
 export default function DashboardPage() {
@@ -93,10 +101,14 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!user) return;
+    if (user.role !== 'employee') {
+      setLoadingForm(false);
+      return;
+    }
     async function load() {
       const { data } = await supabase
         .from('skill_forms')
-        .select('id, status, updated_at, submitted_at, step1_data, step2_data')
+        .select('id, status, updated_at, submitted_at, total_exp, current_project')
         .eq('employee_id', user!.id)
         .maybeSingle();
       setForm(data as SkillForm | null);
@@ -109,6 +121,7 @@ export default function DashboardPage() {
   const recentNotifs = notifications.slice(0, 3);
   const completion = calcCompletion(form);
   const statusCfg = form ? STATUS_CONFIG[form.status] : null;
+  const isEmployee = user?.role === 'employee';
 
   async function handleNotifClick(n: Notification) {
     if (!n.is_read) await markRead(n.id);
@@ -146,123 +159,152 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm shadow-gray-200/60 overflow-hidden">
-          <div className="px-6 py-5 border-b border-gray-100">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-primary-50 flex items-center justify-center">
-                  <ClipboardList size={15} className="text-primary-500" />
+        {isEmployee ? (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm shadow-gray-200/60 overflow-hidden">
+            <div className="px-6 py-5 border-b border-gray-100">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-primary-50 flex items-center justify-center">
+                    <ClipboardList size={15} className="text-primary-500" />
+                  </div>
+                  <h2 className="font-heading font-bold text-base text-gray-900">My Skill Profile</h2>
                 </div>
-                <h2 className="font-heading font-bold text-base text-gray-900">My Skill Profile</h2>
+                {statusCfg && (
+                  <span className={`flex items-center gap-1.5 text-xs font-semibold font-heading px-3 py-1.5 rounded-full border ${statusCfg.borderClass} ${statusCfg.badgeClass}`}>
+                    <statusCfg.icon size={11} className={statusCfg.iconClass} />
+                    {statusCfg.label}
+                  </span>
+                )}
               </div>
-              {statusCfg && (
-                <span className={`flex items-center gap-1.5 text-xs font-semibold font-heading px-3 py-1.5 rounded-full border ${statusCfg.borderClass} ${statusCfg.badgeClass}`}>
-                  <statusCfg.icon size={11} className={statusCfg.iconClass} />
-                  {statusCfg.label}
-                </span>
+            </div>
+
+            <div className="px-6 py-5 space-y-5">
+              {loadingForm ? (
+                <div className="space-y-3 py-2">
+                  <Skeleton className="h-3 w-32" />
+                  <Skeleton className="h-2.5 w-full rounded-full" />
+                  <div className="flex gap-4 pt-1">
+                    <Skeleton className="h-3 w-20" />
+                    <Skeleton className="h-3 w-16" />
+                    <Skeleton className="h-3 w-18" />
+                  </div>
+                  <Skeleton className="h-9 w-40 rounded-xl mt-3" />
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs font-body">
+                      <span className="text-gray-500">Profile Completion</span>
+                      <span className={`font-semibold font-heading ${completion === 100 ? 'text-emerald-600' : 'text-primary-500'}`}>
+                        {completion}%
+                      </span>
+                    </div>
+                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-700 ${
+                          completion === 100 ? 'bg-emerald-400' : completion >= 60 ? 'bg-accent-400' : 'bg-primary-300'
+                        }`}
+                        style={{ width: `${completion}%` }}
+                      />
+                    </div>
+                    <div className="flex items-center gap-5 pt-1">
+                      {calcSteps(form).map((step) => (
+                        <div key={step.label} className="flex items-center gap-1.5">
+                          <div className={`w-3.5 h-3.5 rounded-full flex items-center justify-center ${step.done ? 'bg-emerald-400' : 'bg-gray-200'}`}>
+                            {step.done && (
+                              <svg width="7" height="7" viewBox="0 0 7 7" fill="none">
+                                <path d="M1 3.5L2.8 5.5L6 1.5" stroke="white" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            )}
+                          </div>
+                          <span className={`text-[11px] font-body ${step.done ? 'text-emerald-600' : 'text-gray-400'}`}>{step.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {form && (
+                    <p className="text-xs text-gray-400 font-body">
+                      Last updated: {formatDate(form.updated_at)}
+                      {form.submitted_at ? ` · Submitted: ${formatDate(form.submitted_at)}` : ''}
+                    </p>
+                  )}
+
+                  <div className="flex items-center gap-3 pt-1">
+                    {(!form || form.status === 'draft' || form.status === 'returned') ? (
+                      <button
+                        onClick={() => navigate('/form')}
+                        className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white text-sm font-semibold font-heading transition-all shadow-sm shadow-primary-200"
+                      >
+                        <Pencil size={14} />
+                        {!form ? 'Start Profile' : form.status === 'returned' ? 'Revise & Resubmit' : 'Continue Profile'}
+                        <ArrowRight size={14} />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => navigate('/form')}
+                        className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-gray-200 text-gray-700 text-sm font-semibold font-heading hover:bg-gray-50 transition-all"
+                      >
+                        <FileText size={14} />
+                        View Profile
+                      </button>
+                    )}
+
+                    {form?.status === 'returned' && (
+                      <p className="flex items-center gap-1.5 text-xs text-orange-600 font-body">
+                        <RotateCcw size={12} />
+                        Your form was returned for revision
+                      </p>
+                    )}
+                    {form?.status === 'pending_review' && (
+                      <p className="flex items-center gap-1.5 text-xs text-amber-600 font-body">
+                        <Clock size={12} />
+                        Awaiting manager review
+                      </p>
+                    )}
+                    {form?.status === 'approved' && (
+                      <p className="flex items-center gap-1.5 text-xs text-emerald-600 font-body">
+                        <CheckCircle2 size={12} />
+                        Your profile has been approved
+                      </p>
+                    )}
+                  </div>
+                </>
               )}
             </div>
           </div>
-
-          <div className="px-6 py-5 space-y-5">
-            {loadingForm ? (
-              <div className="space-y-3 py-2">
-                <Skeleton className="h-3 w-32" />
-                <Skeleton className="h-2.5 w-full rounded-full" />
-                <div className="flex gap-4 pt-1">
-                  <Skeleton className="h-3 w-20" />
-                  <Skeleton className="h-3 w-16" />
-                  <Skeleton className="h-3 w-18" />
-                </div>
-                <Skeleton className="h-9 w-40 rounded-xl mt-3" />
+        ) : (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm shadow-gray-200/60 p-6">
+            <div className="flex items-center gap-2.5 mb-4">
+              <div className="w-8 h-8 rounded-xl bg-primary-50 flex items-center justify-center">
+                <ClipboardList size={15} className="text-primary-500" />
               </div>
-            ) : (
-              <>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs font-body">
-                    <span className="text-gray-500">Profile Completion</span>
-                    <span className={`font-semibold font-heading ${completion === 100 ? 'text-emerald-600' : 'text-primary-500'}`}>
-                      {completion}%
-                    </span>
+              <h2 className="font-heading font-bold text-base text-gray-900">Quick Links</h2>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {[
+                { label: 'Inbox',         desc: 'Review team skill forms',          path: '/inbox',         roles: ['manager', 'tmg', 'admin'] },
+                { label: 'TMG Dashboard', desc: 'View all employee skill profiles', path: '/tmg-dashboard', roles: ['tmg', 'admin'] },
+                { label: 'Form Status',   desc: 'Track submission progress',        path: '/status',        roles: ['tmg', 'admin'] },
+                { label: 'Reports',       desc: 'Analytics and skill insights',     path: '/reports',       roles: ['management', 'admin'] },
+                { label: 'Users',         desc: 'Manage users and roles',           path: '/admin',         roles: ['admin'] },
+                { label: 'Power BI Guide', desc: 'Connect exports to Power BI',    path: '/help/powerbi',  roles: ['tmg', 'management', 'admin'] },
+              ].filter((l) => user && l.roles.includes(user.role)).map((link) => (
+                <button
+                  key={link.path}
+                  onClick={() => navigate(link.path)}
+                  className="flex items-center justify-between p-4 rounded-xl border border-gray-100 bg-gray-50/60 hover:bg-primary-50 hover:border-primary-100 transition-all group text-left"
+                >
+                  <div>
+                    <p className="text-sm font-semibold font-heading text-gray-800 group-hover:text-primary-700">{link.label}</p>
+                    <p className="text-xs text-gray-400 font-body mt-0.5">{link.desc}</p>
                   </div>
-                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all duration-700 ${
-                        completion === 100 ? 'bg-emerald-400' : completion >= 60 ? 'bg-accent-400' : 'bg-primary-300'
-                      }`}
-                      style={{ width: `${completion}%` }}
-                    />
-                  </div>
-                  <div className="flex items-center gap-5 pt-1">
-                    {[
-                      { label: 'Profile Info', done: !!(form?.step1_data) },
-                      { label: 'Skills',       done: !!(form?.step2_data) },
-                      { label: 'Submitted',    done: form?.status === 'pending_review' || form?.status === 'approved' },
-                    ].map((step) => (
-                      <div key={step.label} className="flex items-center gap-1.5">
-                        <div className={`w-3.5 h-3.5 rounded-full flex items-center justify-center ${step.done ? 'bg-emerald-400' : 'bg-gray-200'}`}>
-                          {step.done && (
-                            <svg width="7" height="7" viewBox="0 0 7 7" fill="none">
-                              <path d="M1 3.5L2.8 5.5L6 1.5" stroke="white" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          )}
-                        </div>
-                        <span className={`text-[11px] font-body ${step.done ? 'text-emerald-600' : 'text-gray-400'}`}>{step.label}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {form && (
-                  <p className="text-xs text-gray-400 font-body">
-                    Last updated: {formatDate(form.updated_at)}
-                    {form.submitted_at ? ` · Submitted: ${formatDate(form.submitted_at)}` : ''}
-                  </p>
-                )}
-
-                <div className="flex items-center gap-3 pt-1">
-                  {(!form || form.status === 'draft' || form.status === 'returned') ? (
-                    <button
-                      onClick={() => navigate('/form')}
-                      className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white text-sm font-semibold font-heading transition-all shadow-sm shadow-primary-200"
-                    >
-                      <Pencil size={14} />
-                      {!form ? 'Start Profile' : form.status === 'returned' ? 'Revise & Resubmit' : 'Continue Profile'}
-                      <ArrowRight size={14} />
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => navigate('/form')}
-                      className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-gray-200 text-gray-700 text-sm font-semibold font-heading hover:bg-gray-50 transition-all"
-                    >
-                      <FileText size={14} />
-                      View Profile
-                    </button>
-                  )}
-
-                  {form?.status === 'returned' && (
-                    <p className="flex items-center gap-1.5 text-xs text-orange-600 font-body">
-                      <RotateCcw size={12} />
-                      Your form was returned for revision
-                    </p>
-                  )}
-                  {form?.status === 'pending_review' && (
-                    <p className="flex items-center gap-1.5 text-xs text-amber-600 font-body">
-                      <Clock size={12} />
-                      Awaiting manager review
-                    </p>
-                  )}
-                  {form?.status === 'approved' && (
-                    <p className="flex items-center gap-1.5 text-xs text-emerald-600 font-body">
-                      <CheckCircle2 size={12} />
-                      Your profile has been approved
-                    </p>
-                  )}
-                </div>
-              </>
-            )}
+                  <ArrowRight size={14} className="text-gray-300 group-hover:text-primary-400 shrink-0" />
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm shadow-gray-200/60 overflow-hidden">
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
