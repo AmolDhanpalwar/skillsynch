@@ -8,4 +8,9 @@ export default defineConfig({
     include: ['react-hook-form', '@hookform/resolvers/zod', 'zod'],
     exclude: ['lucide-react'],
   },
-});
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/test/setup.ts'],
+  },
+} as Parameters<typeof defineConfig>[0]);

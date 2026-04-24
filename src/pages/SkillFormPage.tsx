@@ -26,6 +26,7 @@ import {
 } from '../types/form';
 import type {
   Step1Values,
+  Step1Input,
   Step2Values,
   Step3Values,
   Step4Values,
@@ -140,7 +141,7 @@ function SkillFormInner() {
   const isApproved = formStatus === 'approved';
   const isLocked = isApproved || formStatus === 'pending_review';
 
-  const form = useForm<Step1Values>({
+  const form = useForm<Step1Input, unknown, Step1Values>({
     resolver: zodResolver(step1Schema),
     defaultValues: {
       full_name: '',
@@ -149,13 +150,13 @@ function SkillFormInner() {
       designation: '',
       grade: '',
       current_project: '',
-      total_exp: undefined,
-      relevant_exp: undefined,
-      haptiq_exp: undefined,
+      total_exp: NaN,
+      relevant_exp: NaN,
+      haptiq_exp: NaN,
       manager_name: '',
       manager_email: '',
     },
-    mode: 'onTouched',
+    mode: 'onBlur',
   });
 
   const { watch, reset, getValues, trigger } = form;
@@ -164,38 +165,52 @@ function SkillFormInner() {
     if (!user) return;
 
     async function init() {
-      const { data: existingForm } = await supabase
-        .from('skill_forms')
-        .select('*')
-        .eq('employee_id', user!.id)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const [existingFormRes, managerRes] = await Promise.all([
+        supabase
+          .from('skill_forms')
+          .select('*')
+          .eq('employee_id', user!.id)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        user!.manager_id
+          ? supabase
+              .from('users')
+              .select('full_name, email')
+              .eq('id', user!.manager_id)
+              .maybeSingle()
+          : Promise.resolve({ data: null }),
+      ]);
 
-      const baseValues = {
+      const existingForm = existingFormRes.data;
+      const manager = managerRes.data;
+
+      const baseValues: Step1Input = {
         full_name: user!.full_name || '',
         email: user!.email || '',
         employee_number: user!.employee_number || '',
         designation: user!.designation || '',
         grade: user!.grade || '',
         current_project: '',
-        total_exp: undefined as unknown as number,
-        relevant_exp: undefined as unknown as number,
-        haptiq_exp: undefined as unknown as number,
-        manager_name: '',
-        manager_email: '',
+        total_exp: NaN,
+        relevant_exp: NaN,
+        haptiq_exp: NaN,
+        manager_name: manager?.full_name || '',
+        manager_email: manager?.email || '',
       };
 
       if (existingForm) {
+        // Clear stale localStorage draft — DB is the source of truth
+        localStorage.removeItem(DRAFT_KEY(user!.id));
         setFormId(existingForm.id);
         setFormStatus(existingForm.status as FormStatus);
         reset({
           ...baseValues,
           current_project: existingForm.current_project || '',
-          total_exp: existingForm.total_exp ?? undefined,
-          relevant_exp: existingForm.relevant_exp ?? undefined,
-          haptiq_exp: existingForm.haptiq_exp ?? undefined,
-        });
+          total_exp: existingForm.total_exp != null ? Number(existingForm.total_exp) : NaN,
+          relevant_exp: existingForm.relevant_exp != null ? Number(existingForm.relevant_exp) : NaN,
+          haptiq_exp: existingForm.haptiq_exp != null ? Number(existingForm.haptiq_exp) : NaN,
+        }, { keepErrors: false });
 
         const { data: items } = await supabase
           .from('skill_items')
@@ -249,13 +264,19 @@ function SkillFormInner() {
         const draftJson = localStorage.getItem(DRAFT_KEY(user!.id));
         if (draftJson) {
           try {
-            const draft = JSON.parse(draftJson) as Partial<Step1Values>;
-            reset({ ...baseValues, ...draft });
+            const draft = JSON.parse(draftJson) as Record<string, unknown>;
+            const sanitized: Partial<Step1Input> = {
+              ...(draft as Partial<Step1Input>),
+              total_exp: draft.total_exp != null && draft.total_exp !== '' ? Number(draft.total_exp) : NaN,
+              relevant_exp: draft.relevant_exp != null && draft.relevant_exp !== '' ? Number(draft.relevant_exp) : NaN,
+              haptiq_exp: draft.haptiq_exp != null && draft.haptiq_exp !== '' ? Number(draft.haptiq_exp) : NaN,
+            };
+            reset({ ...baseValues, ...sanitized }, { keepErrors: false });
           } catch {
-            reset(baseValues);
+            reset(baseValues, { keepErrors: false });
           }
         } else {
-          reset(baseValues);
+          reset(baseValues, { keepErrors: false });
         }
       }
 
@@ -346,15 +367,14 @@ function SkillFormInner() {
 
     if (error) return null;
 
-    await supabase
-      .from('users')
-      .update({
-        full_name: values.full_name,
-        employee_number: values.employee_number,
-        designation: values.designation,
-        grade: values.grade,
-      })
-      .eq('id', user.id);
+    const userUpdate: Record<string, string> = {
+      full_name: values.full_name,
+      email: values.email,
+      employee_number: values.employee_number,
+      designation: values.designation,
+      grade: values.grade,
+    };
+    await supabase.from('users').update(userUpdate).eq('id', user.id);
 
     const savedId = data?.id ?? formId;
     if (data?.id) setFormId(data.id);

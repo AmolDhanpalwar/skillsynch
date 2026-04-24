@@ -1,26 +1,35 @@
 import { z } from 'zod';
 import type { FormStatus } from './index';
 
-const positiveNum = z.coerce
-  .number({ invalid_type_error: 'Enter a valid number' })
-  .min(0, 'Must be 0 or more')
-  .max(50, 'Must be 50 or less');
+const expField = z.custom<number | string>(
+  (val) => {
+    if (val === null || val === undefined || val === '' || (typeof val === 'number' && isNaN(val))) return false;
+    return !isNaN(Number(val));
+  },
+  { error: (issue) => ({ message: issue.input === '' || issue.input == null || (typeof issue.input === 'number' && isNaN(issue.input as number)) ? 'This field is required' : 'Enter a valid number' }) }
+).transform((val) => Number(val))
+  .pipe(
+    z.number()
+      .refine((v) => v >= 0, { message: 'Must be 0 or more' })
+      .refine((v) => v <= 50, { message: 'Must be 50 or less' })
+  );
 
 export const step1Schema = z.object({
-  full_name: z.string().min(1, 'Employee name is required'),
-  email: z.string().email(),
-  employee_number: z.string().min(1, 'Employee number is required'),
-  designation: z.string().min(1, 'Designation is required'),
-  grade: z.string().min(1, 'Grade is required'),
-  current_project: z.string().min(1, 'Current project is required'),
-  total_exp: positiveNum,
-  relevant_exp: positiveNum,
-  haptiq_exp: positiveNum,
-  manager_name: z.string().optional(),
-  manager_email: z.string().optional(),
+  full_name: z.string().min(1, 'Employee name is required').default(''),
+  email: z.string().email('Enter a valid email').default(''),
+  employee_number: z.string().min(1, 'Employee number is required').default(''),
+  designation: z.string().min(1, 'Designation is required').default(''),
+  grade: z.string().min(1, 'Grade is required').default(''),
+  current_project: z.string().min(1, 'Current project is required').default(''),
+  total_exp: expField,
+  relevant_exp: expField,
+  haptiq_exp: expField,
+  manager_name: z.string().default(''),
+  manager_email: z.string().default(''),
 });
 
 export type Step1Values = z.infer<typeof step1Schema>;
+export type Step1Input = z.input<typeof step1Schema>;
 
 export const SKILL_RATING_OPTIONS = [
   { value: 0, label: '0 — No Knowledge' },
