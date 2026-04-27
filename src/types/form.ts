@@ -1,18 +1,28 @@
 import { z } from 'zod';
 import type { FormStatus } from './index';
 
-const expField = z.custom<number | string>(
-  (val) => {
-    if (val === null || val === undefined || val === '' || (typeof val === 'number' && isNaN(val))) return false;
-    return !isNaN(Number(val));
-  },
-  { error: (issue) => ({ message: issue.input === '' || issue.input == null || (typeof issue.input === 'number' && isNaN(issue.input as number)) ? 'This field is required' : 'Enter a valid number' }) }
-).transform((val) => Number(val))
-  .pipe(
-    z.number()
-      .refine((v) => v >= 0, { message: 'Must be 0 or more' })
-      .refine((v) => v <= 50, { message: 'Must be 50 or less' })
-  );
+const expField = z
+  .union([z.string(), z.number()])
+  .transform((val, ctx) => {
+    if (val === '' || val === null || val === undefined || (typeof val === 'number' && isNaN(val as number))) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'This field is required' });
+      return z.NEVER;
+    }
+    const n = Number(val);
+    if (isNaN(n)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Enter a valid number' });
+      return z.NEVER;
+    }
+    if (n < 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Must be 0 or more' });
+      return z.NEVER;
+    }
+    if (n > 50) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Must be 50 or less' });
+      return z.NEVER;
+    }
+    return n;
+  });
 
 export const step1Schema = z.object({
   full_name: z.string().min(1, 'Employee name is required').default(''),

@@ -150,9 +150,9 @@ function SkillFormInner() {
       designation: '',
       grade: '',
       current_project: '',
-      total_exp: NaN,
-      relevant_exp: NaN,
-      haptiq_exp: NaN,
+      total_exp: '',
+      relevant_exp: '',
+      haptiq_exp: '',
       manager_name: '',
       manager_email: '',
     },
@@ -193,9 +193,9 @@ function SkillFormInner() {
         designation: user!.designation || '',
         grade: user!.grade || '',
         current_project: '',
-        total_exp: NaN,
-        relevant_exp: NaN,
-        haptiq_exp: NaN,
+        total_exp: '',
+        relevant_exp: '',
+        haptiq_exp: '',
         manager_name: manager?.full_name || '',
         manager_email: manager?.email || '',
       };
@@ -212,9 +212,9 @@ function SkillFormInner() {
           designation: (existingForm.designation as string) || baseValues.designation,
           grade: (existingForm.grade as string) || baseValues.grade,
           current_project: existingForm.current_project || '',
-          total_exp: existingForm.total_exp != null ? Number(existingForm.total_exp) : NaN,
-          relevant_exp: existingForm.relevant_exp != null ? Number(existingForm.relevant_exp) : NaN,
-          haptiq_exp: existingForm.haptiq_exp != null ? Number(existingForm.haptiq_exp) : NaN,
+          total_exp: existingForm.total_exp != null ? String(existingForm.total_exp) : '',
+          relevant_exp: existingForm.relevant_exp != null ? String(existingForm.relevant_exp) : '',
+          haptiq_exp: existingForm.haptiq_exp != null ? String(existingForm.haptiq_exp) : '',
           manager_name: baseValues.manager_name,
           manager_email: baseValues.manager_email,
         }, { keepErrors: false });
@@ -274,9 +274,9 @@ function SkillFormInner() {
             const draft = JSON.parse(draftJson) as Record<string, unknown>;
             const sanitized: Partial<Step1Input> = {
               ...(draft as Partial<Step1Input>),
-              total_exp: draft.total_exp != null && draft.total_exp !== '' ? Number(draft.total_exp) : NaN,
-              relevant_exp: draft.relevant_exp != null && draft.relevant_exp !== '' ? Number(draft.relevant_exp) : NaN,
-              haptiq_exp: draft.haptiq_exp != null && draft.haptiq_exp !== '' ? Number(draft.haptiq_exp) : NaN,
+              total_exp: draft.total_exp != null && draft.total_exp !== '' ? String(draft.total_exp) : '',
+              relevant_exp: draft.relevant_exp != null && draft.relevant_exp !== '' ? String(draft.relevant_exp) : '',
+              haptiq_exp: draft.haptiq_exp != null && draft.haptiq_exp !== '' ? String(draft.haptiq_exp) : '',
             };
             reset({ ...baseValues, ...sanitized }, { keepErrors: false });
           } catch {

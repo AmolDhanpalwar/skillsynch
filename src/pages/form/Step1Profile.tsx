@@ -159,7 +159,7 @@ export default function Step1Profile({ form }: Step1ProfileProps) {
           placeholder="e.g. 5"
           hint="Total professional experience in years"
           error={errors.total_exp?.message}
-          {...register('total_exp', { valueAsNumber: true })}
+          {...register('total_exp')}
         />
         <FormField
           label="Relevant Years of Experience"
@@ -168,7 +168,7 @@ export default function Step1Profile({ form }: Step1ProfileProps) {
           placeholder="e.g. 3"
           hint="Experience relevant to current role"
           error={errors.relevant_exp?.message}
-          {...register('relevant_exp', { valueAsNumber: true })}
+          {...register('relevant_exp')}
         />
 
         <FormField
@@ -178,7 +178,7 @@ export default function Step1Profile({ form }: Step1ProfileProps) {
           placeholder="e.g. 1.5"
           hint="Years worked at Haptiq"
           error={errors.haptiq_exp?.message}
-          {...register('haptiq_exp', { valueAsNumber: true })}
+          {...register('haptiq_exp')}
         />
 
         {/* Manager Name — searchable lookup */}
