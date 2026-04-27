@@ -126,15 +126,44 @@ export default function LoginPage() {
               <p className="text-xs font-semibold font-heading text-gray-500 uppercase tracking-wide mb-3">
                 Demo Credentials
               </p>
-              <div className="grid grid-cols-2 gap-2 text-xs font-body text-gray-600">
-                <span className="font-medium text-gray-700">employee1@haptiq.com</span>
-                <span className="text-gray-400">emp@123</span>
-                <span className="font-medium text-gray-700">tmg1@haptiq.com</span>
-                <span className="text-gray-400">tmg@123</span>
-                <span className="font-medium text-gray-700">mgmt@haptiq.com</span>
-                <span className="text-gray-400">mgmt@123</span>
-                <span className="font-medium text-gray-700">admin@haptiq.com</span>
-                <span className="text-gray-400">admin@123</span>
+              <div className="space-y-3 text-xs font-body">
+                <div>
+                  <p className="text-[10px] font-semibold font-heading text-gray-400 uppercase tracking-wider mb-1.5">Employees</p>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                    {['employee1','employee2','employee3','employee4','employee5'].map((e) => (
+                      <button
+                        key={e}
+                        type="button"
+                        onClick={() => { setEmail(`${e}@haptiq.com`); setPassword('emp@123'); }}
+                        className="col-span-2 grid grid-cols-2 text-left hover:bg-gray-100 rounded-lg px-2 py-1 -mx-2 transition-colors group"
+                      >
+                        <span className="font-medium text-gray-700 group-hover:text-primary-600 truncate">{e}@haptiq.com</span>
+                        <span className="text-gray-400">emp@123</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="border-t border-gray-100 pt-3">
+                  <p className="text-[10px] font-semibold font-heading text-gray-400 uppercase tracking-wider mb-1.5">TMG / Mgmt / Admin</p>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                    {[
+                      { email: 'tmg1@haptiq.com',  pass: 'tmg@123'  },
+                      { email: 'tmg2@haptiq.com',  pass: 'tmg@123'  },
+                      { email: 'mgmt@haptiq.com',  pass: 'mgmt@123' },
+                      { email: 'admin@haptiq.com', pass: 'admin@123'},
+                    ].map((c) => (
+                      <button
+                        key={c.email}
+                        type="button"
+                        onClick={() => { setEmail(c.email); setPassword(c.pass); }}
+                        className="col-span-2 grid grid-cols-2 text-left hover:bg-gray-100 rounded-lg px-2 py-1 -mx-2 transition-colors group"
+                      >
+                        <span className="font-medium text-gray-700 group-hover:text-primary-600 truncate">{c.email}</span>
+                        <span className="text-gray-400">{c.pass}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
           </div>

@@ -27,6 +27,33 @@ const seedData = [
     grade: "L2",
   },
   {
+    email: "employee3@haptiq.com",
+    password: "emp@123",
+    full_name: "Employee Three",
+    role: "employee",
+    employee_number: "EMP003",
+    designation: "Software Engineer",
+    grade: "L3",
+  },
+  {
+    email: "employee4@haptiq.com",
+    password: "emp@123",
+    full_name: "Employee Four",
+    role: "employee",
+    employee_number: "EMP004",
+    designation: "Senior Software Engineer",
+    grade: "L4",
+  },
+  {
+    email: "employee5@haptiq.com",
+    password: "emp@123",
+    full_name: "Employee Five",
+    role: "employee",
+    employee_number: "EMP005",
+    designation: "Senior Software Engineer",
+    grade: "L4",
+  },
+  {
     email: "tmg1@haptiq.com",
     password: "tmg@123",
     full_name: "TMG One",
@@ -115,17 +142,20 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // Assign managers for employees
     const emp1Id = createdIds["employee1@haptiq.com"];
     const emp2Id = createdIds["employee2@haptiq.com"];
+    const emp3Id = createdIds["employee3@haptiq.com"];
+    const emp4Id = createdIds["employee4@haptiq.com"];
+    const emp5Id = createdIds["employee5@haptiq.com"];
     const tmg1Id = createdIds["tmg1@haptiq.com"];
     const tmg2Id = createdIds["tmg2@haptiq.com"];
 
-    if (emp1Id && tmg1Id) {
-      await supabase.from("users").update({ manager_id: tmg1Id }).eq("id", emp1Id);
-    }
-    if (emp2Id && tmg2Id) {
-      await supabase.from("users").update({ manager_id: tmg2Id }).eq("id", emp2Id);
-    }
+    if (emp1Id && tmg1Id) await supabase.from("users").update({ manager_id: tmg1Id }).eq("id", emp1Id);
+    if (emp2Id && tmg1Id) await supabase.from("users").update({ manager_id: tmg1Id }).eq("id", emp2Id);
+    if (emp3Id && tmg2Id) await supabase.from("users").update({ manager_id: tmg2Id }).eq("id", emp3Id);
+    if (emp4Id && tmg2Id) await supabase.from("users").update({ manager_id: tmg2Id }).eq("id", emp4Id);
+    if (emp5Id && tmg2Id) await supabase.from("users").update({ manager_id: tmg2Id }).eq("id", emp5Id);
 
     return new Response(
       JSON.stringify({ message: "Seeded successfully", users: createdIds }),
