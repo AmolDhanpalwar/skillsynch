@@ -412,8 +412,13 @@ function SkillFormInner() {
 
   async function handleNext() {
     if (currentStep === 1) {
+      const snapshot = getValues();
+      console.log('[handleNext] RHF store before trigger:', JSON.stringify(snapshot));
       const valid = await trigger();
-      if (!valid) return;
+      if (!valid) {
+        console.log('[handleNext] errors after trigger:', JSON.stringify(form.formState.errors));
+        return;
+      }
     }
     if (!isLocked) await handleSaveDraft();
     setCurrentStep(currentStep + 1);
