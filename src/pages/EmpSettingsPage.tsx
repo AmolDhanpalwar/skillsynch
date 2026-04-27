@@ -1,10 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import {
-  Award,
-  Code2,
-  Layers,
-  Wrench,
-  Database,
+  GraduationCap,
+  Briefcase,
   Plus,
   Search,
   ToggleLeft,
@@ -19,12 +16,7 @@ import AppShell from '../components/layout/AppShell';
 import { Skeleton } from '../components/ui/Skeleton';
 import { supabase } from '../lib/supabaseClient';
 
-type TableName =
-  | 'settings_certifications'
-  | 'settings_languages'
-  | 'settings_frameworks'
-  | 'settings_tools'
-  | 'settings_databases';
+type EmpTableName = 'settings_grades' | 'settings_designations';
 
 interface SettingItem {
   id: string;
@@ -33,63 +25,38 @@ interface SettingItem {
   created_at: string;
 }
 
-type TabId = 'certifications' | 'languages' | 'frameworks' | 'tools' | 'databases';
+type TabId = 'grades' | 'designations';
+type FilterStatus = 'all' | 'active' | 'inactive';
 
 interface TabConfig {
   id: TabId;
   label: string;
   icon: React.ElementType;
-  table: TableName;
+  table: EmpTableName;
   description: string;
   placeholder: string;
 }
 
 const TABS: TabConfig[] = [
   {
-    id: 'certifications',
-    label: 'Certifications',
-    icon: Award,
-    table: 'settings_certifications',
-    description: 'Manage the list of certifications employees can select in their skill form.',
-    placeholder: 'e.g. AWS Certified Solutions Architect',
+    id: 'grades',
+    label: 'Grades',
+    icon: GraduationCap,
+    table: 'settings_grades',
+    description: 'Manage the list of employee grades shown as a searchable dropdown on the skill form.',
+    placeholder: 'e.g. L3 or Senior',
   },
   {
-    id: 'languages',
-    label: 'Languages',
-    icon: Code2,
-    table: 'settings_languages',
-    description: 'Manage programming languages shown in the skills section.',
-    placeholder: 'e.g. TypeScript',
-  },
-  {
-    id: 'frameworks',
-    label: 'Frameworks',
-    icon: Layers,
-    table: 'settings_frameworks',
-    description: 'Manage frameworks and libraries available in the skills section.',
-    placeholder: 'e.g. Next.js',
-  },
-  {
-    id: 'tools',
-    label: 'Tools',
-    icon: Wrench,
-    table: 'settings_tools',
-    description: 'Manage tools and technologies employees can list in their profile.',
-    placeholder: 'e.g. Docker',
-  },
-  {
-    id: 'databases',
-    label: 'Databases',
-    icon: Database,
-    table: 'settings_databases',
-    description: 'Manage database technologies available in the skill form.',
-    placeholder: 'e.g. PostgreSQL',
+    id: 'designations',
+    label: 'Designations',
+    icon: Briefcase,
+    table: 'settings_designations',
+    description: 'Manage the list of designations shown as a searchable dropdown on the skill form.',
+    placeholder: 'e.g. Senior Software Engineer',
   },
 ];
 
-type FilterStatus = 'all' | 'active' | 'inactive';
-
-function useSettingsData(table: TableName) {
+function useSettingsData(table: EmpTableName) {
   const [items, setItems] = useState<SettingItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -108,15 +75,11 @@ function useSettingsData(table: TableName) {
 
   useEffect(() => { fetch(); }, [table]);
 
-  return { items, loading, error, refetch: fetch, setItems };
+  return { items, loading, error, setItems };
 }
 
-interface SettingsPanelProps {
-  tab: TabConfig;
-}
-
-function SettingsPanel({ tab }: SettingsPanelProps) {
-  const { items, loading, error, refetch, setItems } = useSettingsData(tab.table);
+function SettingsPanel({ tab }: { tab: TabConfig }) {
+  const { items, loading, error, setItems } = useSettingsData(tab.table);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterStatus>('all');
   const [newName, setNewName] = useState('');
@@ -192,9 +155,7 @@ function SettingsPanel({ tab }: SettingsPanelProps) {
       .update({ is_active: !item.is_active })
       .eq('id', item.id);
     if (!err) {
-      setItems((prev) =>
-        prev.map((i) => (i.id === item.id ? { ...i, is_active: !i.is_active } : i))
-      );
+      setItems((prev) => prev.map((i) => i.id === item.id ? { ...i, is_active: !i.is_active } : i));
     }
     setSavingId(null);
   }
@@ -234,25 +195,21 @@ function SettingsPanel({ tab }: SettingsPanelProps) {
       return;
     }
     setItems((prev) =>
-      prev
-        .map((i) => (i.id === item.id ? { ...i, name: trimmed } : i))
+      prev.map((i) => i.id === item.id ? { ...i, name: trimmed } : i)
         .sort((a, b) => a.name.localeCompare(b.name))
     );
     setEditId(null);
     setSavingId(null);
   }
 
-  const filterLabel: Record<FilterStatus, string> = {
-    all: 'All',
-    active: 'Active',
-    inactive: 'Inactive',
-  };
+  const filterLabel: Record<FilterStatus, string> = { all: 'All', active: 'Active', inactive: 'Inactive' };
 
   return (
     <div className="space-y-5">
       <p className="text-sm text-gray-500 font-body">{tab.description}</p>
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm shadow-gray-200/60 overflow-hidden">
+        {/* Toolbar */}
         <div className="px-5 py-4 border-b border-gray-100">
           <div className="flex items-center gap-3 flex-wrap">
             <div className="relative flex-1 min-w-[180px]">
@@ -265,10 +222,7 @@ function SettingsPanel({ tab }: SettingsPanelProps) {
                 className="w-full pl-8 pr-3 py-2 rounded-xl border border-gray-200 text-sm font-body text-gray-700 placeholder-gray-400 focus:outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-100 transition-colors"
               />
               {search && (
-                <button
-                  onClick={() => setSearch('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
+                <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                   <X size={13} />
                 </button>
               )}
@@ -307,6 +261,7 @@ function SettingsPanel({ tab }: SettingsPanelProps) {
           </div>
         </div>
 
+        {/* Add row */}
         <div className="px-5 py-4 border-b border-gray-100 bg-gray-50/40">
           <div className="flex items-center gap-2">
             <input
@@ -335,6 +290,7 @@ function SettingsPanel({ tab }: SettingsPanelProps) {
           )}
         </div>
 
+        {/* List */}
         {loading ? (
           <div className="divide-y divide-gray-50">
             {Array.from({ length: 6 }).map((_, i) => (
@@ -342,7 +298,7 @@ function SettingsPanel({ tab }: SettingsPanelProps) {
                 <Skeleton className="h-4 flex-1 max-w-xs" />
                 <Skeleton className="h-6 w-14 rounded-full" />
                 <Skeleton className="h-7 w-7 rounded-lg" />
-                <Skeleton className="h-7 w-16 rounded-lg" />
+                <Skeleton className="h-7 w-20 rounded-lg" />
               </div>
             ))}
           </div>
@@ -363,7 +319,6 @@ function SettingsPanel({ tab }: SettingsPanelProps) {
             {filtered.map((item) => {
               const isEditing = editId === item.id;
               const isSaving = savingId === item.id;
-
               return (
                 <div
                   key={item.id}
@@ -410,24 +365,16 @@ function SettingsPanel({ tab }: SettingsPanelProps) {
                     </>
                   ) : (
                     <>
-                      <span
-                        className={`flex-1 min-w-0 text-sm font-body truncate ${
-                          item.is_active ? 'text-gray-800' : 'text-gray-400 line-through'
-                        }`}
-                      >
+                      <span className={`flex-1 min-w-0 text-sm font-body truncate ${item.is_active ? 'text-gray-800' : 'text-gray-400 line-through'}`}>
                         {item.name}
                       </span>
-
-                      <span
-                        className={`shrink-0 text-[11px] font-semibold font-heading px-2.5 py-1 rounded-full border ${
-                          item.is_active
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                            : 'bg-gray-100 text-gray-400 border-gray-200'
-                        }`}
-                      >
+                      <span className={`shrink-0 text-[11px] font-semibold font-heading px-2.5 py-1 rounded-full border ${
+                        item.is_active
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-gray-100 text-gray-400 border-gray-200'
+                      }`}>
                         {item.is_active ? 'Active' : 'Inactive'}
                       </span>
-
                       <button
                         onClick={() => startEdit(item)}
                         className="p-1.5 rounded-lg text-gray-400 hover:text-primary-500 hover:bg-primary-50 transition-colors shrink-0"
@@ -435,7 +382,6 @@ function SettingsPanel({ tab }: SettingsPanelProps) {
                       >
                         <Pencil size={14} />
                       </button>
-
                       <button
                         onClick={() => handleToggle(item)}
                         disabled={isSaving}
@@ -444,13 +390,11 @@ function SettingsPanel({ tab }: SettingsPanelProps) {
                             ? 'border-orange-200 text-orange-600 hover:bg-orange-50'
                             : 'border-emerald-200 text-emerald-600 hover:bg-emerald-50'
                         }`}
-                        title={item.is_active ? 'Deactivate' : 'Activate'}
                       >
-                        {item.is_active ? (
-                          <><ToggleRight size={13} /> Deactivate</>
-                        ) : (
-                          <><ToggleLeft size={13} /> Activate</>
-                        )}
+                        {item.is_active
+                          ? <><ToggleRight size={13} /> Deactivate</>
+                          : <><ToggleLeft size={13} /> Activate</>
+                        }
                       </button>
                     </>
                   )}
@@ -464,17 +408,17 @@ function SettingsPanel({ tab }: SettingsPanelProps) {
   );
 }
 
-export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<TabId>('certifications');
+export default function EmpSettingsPage() {
+  const [activeTab, setActiveTab] = useState<TabId>('grades');
   const currentTab = TABS.find((t) => t.id === activeTab)!;
 
   return (
     <AppShell>
       <div className="max-w-3xl mx-auto space-y-6">
         <div>
-          <h1 className="font-heading font-bold text-2xl text-gray-900">Skills Settings</h1>
+          <h1 className="font-heading font-bold text-2xl text-gray-900">Emp Settings</h1>
           <p className="text-sm text-gray-400 font-body mt-1">
-            Manage master data for the employee skill form.
+            Manage grade and designation lists shown to employees on their skill form.
           </p>
         </div>
 
@@ -486,14 +430,14 @@ export default function SettingsPage() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold font-heading whitespace-nowrap transition-all flex-1 justify-center ${
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold font-heading whitespace-nowrap transition-all flex-1 justify-center ${
                   active
                     ? 'bg-white text-primary-600 shadow-sm shadow-gray-200/80'
                     : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
                 <Icon size={14} />
-                <span className="hidden sm:inline">{tab.label}</span>
+                {tab.label}
               </button>
             );
           })}

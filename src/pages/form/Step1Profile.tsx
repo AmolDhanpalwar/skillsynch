@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { UseFormReturn } from 'react-hook-form';
-import { User, Clock, UserCheck, Search, X, Loader2 } from 'lucide-react';
+import { User, Clock, UserCheck, Search, X, Loader2, ChevronDown } from 'lucide-react';
 import FormField from '../../components/form/FormField';
 import type { Step1Input, Step1Values } from '../../types/form';
 import { supabase } from '../../lib/supabaseClient';
@@ -16,6 +16,121 @@ interface ManagerOption {
   email: string;
 }
 
+// ─── Searchable list field (Grade / Designation) ──────────────────────────────
+
+interface SearchableListFieldProps {
+  label: string;
+  required?: boolean;
+  value: string;
+  onChange: (val: string) => void;
+  options: string[];
+  placeholder?: string;
+  error?: string;
+}
+
+function SearchableListField({
+  label,
+  required,
+  value,
+  onChange,
+  options,
+  placeholder = 'Search or type…',
+  error,
+}: SearchableListFieldProps) {
+  const [query, setQuery] = useState(value);
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { setQuery(value); }, [value]);
+
+  const filtered = options.filter((o) => o.toLowerCase().includes(query.toLowerCase()));
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        if (query !== value) onChange(query);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [query, value, onChange]);
+
+  function select(option: string) {
+    setQuery(option);
+    onChange(option);
+    setOpen(false);
+  }
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setQuery(e.target.value);
+    onChange(e.target.value);
+    setOpen(true);
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5" ref={containerRef}>
+      <label className="text-xs font-semibold font-heading text-gray-600 uppercase tracking-wide">
+        {label}{required && <span className="text-red-400 ml-0.5">*</span>}
+      </label>
+      <div className="relative">
+        <div className={`flex items-center gap-2 w-full px-3.5 py-2.5 rounded-xl border text-sm font-body bg-white transition-all
+          ${open ? 'border-accent-400 ring-2 ring-accent-400/15' : 'border-gray-200 hover:border-gray-300'}`}>
+          <input
+            type="text"
+            value={query}
+            onChange={handleChange}
+            onFocus={() => setOpen(true)}
+            placeholder={placeholder}
+            className="flex-1 bg-transparent outline-none text-gray-800 placeholder-gray-400"
+          />
+          {query ? (
+            <button
+              type="button"
+              onClick={() => { setQuery(''); onChange(''); setOpen(true); }}
+              className="text-gray-300 hover:text-gray-500 transition-colors shrink-0"
+            >
+              <X size={13} />
+            </button>
+          ) : (
+            <ChevronDown size={13} className={`text-gray-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+          )}
+        </div>
+
+        {open && (
+          <div className="absolute z-20 mt-1.5 w-full bg-white rounded-xl border border-gray-200 shadow-lg overflow-hidden max-h-52 overflow-y-auto">
+            {filtered.length > 0 ? (
+              filtered.map((opt) => (
+                <button
+                  key={opt}
+                  type="button"
+                  onMouseDown={() => select(opt)}
+                  className={`w-full text-left px-4 py-2.5 text-sm font-body transition-colors hover:bg-gray-50
+                    ${opt === value ? 'bg-primary-50 text-primary-700 font-semibold' : 'text-gray-700'}`}
+                >
+                  {opt}
+                </button>
+              ))
+            ) : (
+              <div className="px-4 py-3 text-xs text-gray-400 font-body">
+                No match — value saved as entered.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      {error && (
+        <p className="text-xs text-red-500 font-body flex items-center gap-1">
+          <span className="inline-block w-1 h-1 rounded-full bg-red-400" />
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Step1Profile ────────────────────────────────────────────────────────
+
 export default function Step1Profile({ form }: Step1ProfileProps) {
   const { user } = useAuth();
 
@@ -27,7 +142,10 @@ export default function Step1Profile({ form }: Step1ProfileProps) {
   } = form;
 
   const managerName = watch('manager_name');
+  const gradeValue = watch('grade') as string | undefined;
+  const designationValue = watch('designation') as string | undefined;
 
+  // Manager search state
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<ManagerOption[]>([]);
   const [searching, setSearching] = useState(false);
@@ -36,14 +154,30 @@ export default function Step1Profile({ form }: Step1ProfileProps) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // When form resets with a pre-filled manager_name (loaded from DB), sync the query input
+  // Grade / Designation options from settings tables
+  const [gradeOptions, setGradeOptions] = useState<string[]>([]);
+  const [designationOptions, setDesignationOptions] = useState<string[]>([]);
+
+  useEffect(() => {
+    async function loadOptions() {
+      const [gradesRes, desigRes] = await Promise.all([
+        supabase.from('settings_grades').select('name').eq('is_active', true).order('name'),
+        supabase.from('settings_designations').select('name').eq('is_active', true).order('name'),
+      ]);
+      setGradeOptions(gradesRes.data?.map((r) => r.name) ?? []);
+      setDesignationOptions(desigRes.data?.map((r) => r.name) ?? []);
+    }
+    loadOptions();
+  }, []);
+
+  // Sync pre-filled manager_name from DB load
   useEffect(() => {
     if (managerName && !selectedManager) {
       setQuery(managerName);
     }
   }, [managerName]);
 
-  // Search managers in DB as user types
+  // Debounced manager search
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (!query.trim() || selectedManager) {
@@ -56,7 +190,6 @@ export default function Step1Profile({ form }: Step1ProfileProps) {
       const { data } = await supabase
         .from('users')
         .select('id, full_name, email')
-        .in('role', ['manager', 'tmg', 'admin'])
         .ilike('full_name', `%${query.trim()}%`)
         .limit(8);
       setResults(data ?? []);
@@ -66,7 +199,7 @@ export default function Step1Profile({ form }: Step1ProfileProps) {
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [query, selectedManager]);
 
-  // Close dropdown on outside click
+  // Close manager dropdown on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -129,21 +262,29 @@ export default function Step1Profile({ form }: Step1ProfileProps) {
           error={errors.employee_number?.message}
           {...register('employee_number')}
         />
-        <FormField
+
+        {/* Designation — searchable list from settings */}
+        <SearchableListField
           label="Designation"
           required
-          placeholder="e.g. Software Engineer"
+          value={designationValue ?? ''}
+          onChange={(val) => setValue('designation', val, { shouldDirty: true })}
+          options={designationOptions}
+          placeholder="Search or type designation…"
           error={errors.designation?.message}
-          {...register('designation')}
         />
 
-        <FormField
+        {/* Grade — searchable list from settings */}
+        <SearchableListField
           label="Grade"
           required
-          placeholder="e.g. L2"
+          value={gradeValue ?? ''}
+          onChange={(val) => setValue('grade', val, { shouldDirty: true })}
+          options={gradeOptions}
+          placeholder="Search or type grade…"
           error={errors.grade?.message}
-          {...register('grade')}
         />
+
         <FormField
           label="Current Project Name"
           required

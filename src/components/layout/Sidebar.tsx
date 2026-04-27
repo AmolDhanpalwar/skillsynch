@@ -34,7 +34,8 @@ const navItems: NavItem[] = [
   { icon: BarChart2,       label: 'Reports',         path: '/reports',       roles: ['management', 'admin'] },
   { icon: Star,            label: 'Skills Matrix',  path: '/skills-matrix', roles: ['manager', 'tmg', 'management', 'admin'] },
   { icon: Users,           label: 'Users',           path: '/admin',         roles: ['admin'] },
-  { icon: Settings,        label: 'Settings',        path: '/settings',      roles: ['tmg', 'admin'] },
+  { icon: Settings,        label: 'Skills Settings', path: '/settings',      roles: ['tmg', 'admin'] },
+  { icon: Users,           label: 'Emp Settings',    path: '/emp-settings',  roles: ['tmg', 'admin'] },
   { icon: HelpCircle,      label: 'Power BI Guide', path: '/help/powerbi',  roles: ['tmg', 'management', 'admin'] },
 ];
 

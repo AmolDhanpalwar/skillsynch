@@ -15,6 +15,7 @@ import ManagerReviewPage from './pages/ManagerReviewPage';
 import StatusPage from './pages/StatusPage';
 import PowerBiHelpPage from './pages/PowerBiHelpPage';
 import SettingsPage from './pages/SettingsPage';
+import EmpSettingsPage from './pages/EmpSettingsPage';
 import SkillsMatrixPage from './pages/SkillsMatrixPage';
 import { seedUsersIfEmpty } from './lib/seedUsers';
 
@@ -131,6 +132,14 @@ function AppRoutes() {
           element={
             <PrivateRoute allowedRoles={['tmg', 'admin']}>
               <SettingsPage />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/emp-settings"
+          element={
+            <PrivateRoute allowedRoles={['tmg', 'admin']}>
+              <EmpSettingsPage />
             </PrivateRoute>
           }
         />
