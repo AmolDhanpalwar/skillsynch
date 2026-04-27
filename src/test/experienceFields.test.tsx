@@ -3,9 +3,12 @@ import { render, screen, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { step1Schema } from '../types/form';
 import type { Step1Input, Step1Values } from '../types/form';
+import FormField from '../components/form/FormField';
+
+// ─── Bare-input test harness (no FormField wrapper) ──────────────────────────
 
 type TestFormProps = {
   onSubmit?: (v: Step1Values) => void;
@@ -40,7 +43,6 @@ function TestForm({ onSubmit = vi.fn(), resetWithNumbers, resetWithStrings }: Te
 
   useEffect(() => {
     if (resetWithNumbers) {
-      // Simulates stale localStorage draft with numbers (pre-fix data)
       const draft = { total_exp: 5, relevant_exp: 5, haptiq_exp: 7 } as Record<string, unknown>;
       const sanitized: Partial<Step1Input> = {
         ...(draft as Partial<Step1Input>),
@@ -48,20 +50,26 @@ function TestForm({ onSubmit = vi.fn(), resetWithNumbers, resetWithStrings }: Te
         relevant_exp: draft.relevant_exp != null ? String(draft.relevant_exp) : '',
         haptiq_exp: draft.haptiq_exp != null ? String(draft.haptiq_exp) : '',
       };
-      reset({
-        full_name: 'Test User', email: 'test@example.com', employee_number: 'E001',
-        designation: 'Engineer', grade: 'L3', current_project: 'Project X',
-        manager_name: '', manager_email: '',
-        ...sanitized,
-      }, { keepErrors: false });
+      reset(
+        {
+          full_name: 'Test User', email: 'test@example.com', employee_number: 'E001',
+          designation: 'Engineer', grade: 'L3', current_project: 'Project X',
+          manager_name: '', manager_email: '',
+          ...sanitized,
+        },
+        { keepErrors: false },
+      );
     }
     if (resetWithStrings) {
-      reset({
-        full_name: 'Test User', email: 'test@example.com', employee_number: 'E001',
-        designation: 'Engineer', grade: 'L3', current_project: 'Project X',
-        total_exp: '5', relevant_exp: '3', haptiq_exp: '1.5',
-        manager_name: '', manager_email: '',
-      }, { keepErrors: false });
+      reset(
+        {
+          full_name: 'Test User', email: 'test@example.com', employee_number: 'E001',
+          designation: 'Engineer', grade: 'L3', current_project: 'Project X',
+          total_exp: '5', relevant_exp: '3', haptiq_exp: '1.5',
+          manager_name: '', manager_email: '',
+        },
+        { keepErrors: false },
+      );
     }
   }, [reset, resetWithNumbers, resetWithStrings]);
 
@@ -79,7 +87,72 @@ function TestForm({ onSubmit = vi.fn(), resetWithNumbers, resetWithStrings }: Te
   );
 }
 
-describe('Experience fields validation', () => {
+// ─── FormField + register() integration harness ──────────────────────────────
+// Verifies forwardRef wires the ref from register() to the DOM <input>.
+
+function FormFieldTestHarness() {
+  const {
+    register,
+    trigger,
+    getValues,
+    formState: { errors },
+  } = useForm<Step1Input, unknown, Step1Values>({
+    resolver: zodResolver(step1Schema),
+    defaultValues: {
+      full_name: '',
+      email: '',
+      employee_number: '',
+      designation: '',
+      grade: '',
+      current_project: '',
+      total_exp: '',
+      relevant_exp: '',
+      haptiq_exp: '',
+      manager_name: '',
+      manager_email: '',
+    },
+    mode: 'onBlur',
+  });
+
+  const [capturedTotal, setCapturedTotal] = useState<string | undefined>(undefined);
+
+  return (
+    <form>
+      <FormField label="Full Name" required error={errors.full_name?.message} {...register('full_name')} />
+      <FormField label="Email" required error={errors.email?.message} {...register('email')} />
+      <FormField label="Employee Number" required error={errors.employee_number?.message} {...register('employee_number')} />
+      <FormField label="Designation" required error={errors.designation?.message} {...register('designation')} />
+      <FormField label="Grade" required error={errors.grade?.message} {...register('grade')} />
+      <FormField label="Current Project" required error={errors.current_project?.message} {...register('current_project')} />
+      <FormField label="Total Exp" required error={errors.total_exp?.message} {...register('total_exp')} />
+      <FormField label="Relevant Exp" required error={errors.relevant_exp?.message} {...register('relevant_exp')} />
+      <FormField label="Haptiq Exp" required error={errors.haptiq_exp?.message} {...register('haptiq_exp')} />
+      {errors.full_name && <span data-testid="ff-err-full_name">{errors.full_name.message}</span>}
+      {errors.total_exp && <span data-testid="ff-err-total">{errors.total_exp.message}</span>}
+      {errors.relevant_exp && <span data-testid="ff-err-relevant">{errors.relevant_exp.message}</span>}
+      {errors.haptiq_exp && <span data-testid="ff-err-haptiq">{errors.haptiq_exp.message}</span>}
+      <button
+        type="button"
+        data-testid="capture"
+        onClick={() => { setCapturedTotal(String(getValues('total_exp') ?? 'UNSET')); }}
+      >
+        Capture
+      </button>
+      <button
+        type="button"
+        data-testid="ff-next"
+        onClick={() => trigger()}
+      >
+        Next
+      </button>
+      <div data-testid="captured-total">{capturedTotal ?? 'UNSET'}</div>
+    </form>
+  );
+}
+
+// ─── Tests ────────────────────────────────────────────────────────────────────
+
+describe('Experience fields validation (bare inputs)', () => {
   it('shows no error when valid number is typed into each field', async () => {
     const user = userEvent.setup();
     render(<TestForm />);
@@ -193,9 +266,7 @@ describe('Experience fields validation', () => {
   });
 
   it('no errors on load when reset() is called with sanitized-from-number string values', async () => {
-    // Reproduces the bug: stale localStorage had numbers, now sanitized to strings before reset()
     render(<TestForm resetWithNumbers />);
-    // Should show no errors immediately on load
     expect(screen.queryByTestId('err-total')).toBeNull();
     expect(screen.queryByTestId('err-relevant')).toBeNull();
     expect(screen.queryByTestId('err-haptiq')).toBeNull();
@@ -226,5 +297,53 @@ describe('Experience fields validation', () => {
     await user.type(input, '10');
     await user.tab();
     expect(screen.queryByTestId('err-total')).toBeNull();
+  });
+});
+
+describe('FormField forwardRef + RHF register() integration', () => {
+  it('FormField forwards ref so RHF can read typed values via getValues()', async () => {
+    const user = userEvent.setup();
+    render(<FormFieldTestHarness />);
+
+    await user.type(screen.getByLabelText(/total exp/i), '8');
+    // capture getValues() after typing
+    await act(async () => { screen.getByTestId('capture').click(); });
+    // The captured value must be a string (RHF reads from DOM input), not undefined
+    expect(screen.getByTestId('captured-total').textContent).not.toBe('UNSET');
+  });
+
+  it('trigger() shows required error on empty FormField-wrapped full_name', async () => {
+    render(<FormFieldTestHarness />);
+    await act(async () => { screen.getByTestId('ff-next').click(); });
+    expect(screen.getByTestId('ff-err-full_name')).toBeInTheDocument();
+  });
+
+  it('trigger() shows required error on empty FormField-wrapped exp fields', async () => {
+    render(<FormFieldTestHarness />);
+    await act(async () => { screen.getByTestId('ff-next').click(); });
+    expect(screen.getByTestId('ff-err-total')).toHaveTextContent('This field is required');
+    expect(screen.getByTestId('ff-err-relevant')).toHaveTextContent('This field is required');
+    expect(screen.getByTestId('ff-err-haptiq')).toHaveTextContent('This field is required');
+  });
+
+  it('trigger() passes for FormField-wrapped exp fields when values are typed', async () => {
+    const user = userEvent.setup();
+    render(<FormFieldTestHarness />);
+
+    await user.type(screen.getByLabelText(/full name/i), 'Alice');
+    await user.type(screen.getByLabelText(/email/i), 'alice@example.com');
+    await user.type(screen.getByLabelText(/employee number/i), 'E001');
+    await user.type(screen.getByLabelText(/designation/i), 'Engineer');
+    await user.type(screen.getByLabelText(/grade/i), 'L3');
+    await user.type(screen.getByLabelText(/current project/i), 'Alpha');
+    await user.type(screen.getByLabelText(/total exp/i), '5');
+    await user.type(screen.getByLabelText(/relevant exp/i), '3');
+    await user.type(screen.getByLabelText(/haptiq exp/i), '1.5');
+
+    await act(async () => { screen.getByTestId('ff-next').click(); });
+
+    expect(screen.queryByTestId('ff-err-total')).toBeNull();
+    expect(screen.queryByTestId('ff-err-relevant')).toBeNull();
+    expect(screen.queryByTestId('ff-err-haptiq')).toBeNull();
   });
 });

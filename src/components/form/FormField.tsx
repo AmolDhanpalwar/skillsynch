@@ -1,3 +1,4 @@
+import { forwardRef } from 'react';
 import type { InputHTMLAttributes } from 'react';
 
 interface FormFieldProps extends InputHTMLAttributes<HTMLInputElement> {
@@ -7,21 +8,24 @@ interface FormFieldProps extends InputHTMLAttributes<HTMLInputElement> {
   hint?: string;
 }
 
-export default function FormField({
-  label,
-  error,
-  required,
-  hint,
-  className,
-  ...inputProps
-}: FormFieldProps) {
+const FormField = forwardRef<HTMLInputElement, FormFieldProps>(function FormField(
+  { label, error, required, hint, className, id, ...inputProps },
+  ref,
+) {
+  const fieldId = id ?? (inputProps.name ? `field-${inputProps.name}` : undefined);
+
   return (
     <div className="flex flex-col gap-1.5">
-      <label className="text-xs font-semibold font-heading text-gray-600 uppercase tracking-wide flex items-center gap-1">
+      <label
+        htmlFor={fieldId}
+        className="text-xs font-semibold font-heading text-gray-600 uppercase tracking-wide flex items-center gap-1"
+      >
         {label}
         {required && <span className="text-red-400">*</span>}
       </label>
       <input
+        ref={ref}
+        id={fieldId}
         {...inputProps}
         className={`
           w-full px-3.5 py-2.5 rounded-xl border text-sm font-body text-gray-800
@@ -46,4 +50,6 @@ export default function FormField({
       )}
     </div>
   );
-}
+});
+
+export default FormField;
