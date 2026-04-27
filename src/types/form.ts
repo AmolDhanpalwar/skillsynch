@@ -25,17 +25,17 @@ const expField = z
   });
 
 export const step1Schema = z.object({
-  full_name: z.string().min(1, 'Employee name is required').default(''),
-  email: z.string().email('Enter a valid email').default(''),
-  employee_number: z.string().min(1, 'Employee number is required').default(''),
-  designation: z.string().min(1, 'Designation is required').default(''),
-  grade: z.string().min(1, 'Grade is required').default(''),
-  current_project: z.string().min(1, 'Current project is required').default(''),
+  full_name: z.string().min(1, 'Employee name is required'),
+  email: z.string().email('Enter a valid email'),
+  employee_number: z.string().min(1, 'Employee number is required'),
+  designation: z.string().min(1, 'Designation is required'),
+  grade: z.string().min(1, 'Grade is required'),
+  current_project: z.string().min(1, 'Current project is required'),
   total_exp: expField,
   relevant_exp: expField,
   haptiq_exp: expField,
-  manager_name: z.string().default(''),
-  manager_email: z.string().default(''),
+  manager_name: z.string(),
+  manager_email: z.string(),
 });
 
 export type Step1Values = z.infer<typeof step1Schema>;

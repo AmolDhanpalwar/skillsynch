@@ -412,16 +412,8 @@ function SkillFormInner() {
 
   async function handleNext() {
     if (currentStep === 1) {
-      const snapshot = getValues();
-      console.log('[handleNext] RHF store before trigger:', JSON.stringify(snapshot));
-      console.log('[handleNext] total_exp type:', typeof snapshot.total_exp, '| value:', snapshot.total_exp);
-      console.log('[handleNext] relevant_exp type:', typeof snapshot.relevant_exp, '| value:', snapshot.relevant_exp);
-      console.log('[handleNext] haptiq_exp type:', typeof snapshot.haptiq_exp, '| value:', snapshot.haptiq_exp);
       const valid = await trigger();
-      if (!valid) {
-        console.log('[handleNext] errors after trigger:', JSON.stringify(form.formState.errors));
-        return;
-      }
+      if (!valid) return;
     }
     if (!isLocked) await handleSaveDraft();
     setCurrentStep(currentStep + 1);
