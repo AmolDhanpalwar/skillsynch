@@ -206,11 +206,17 @@ function SkillFormInner() {
         setFormId(existingForm.id);
         setFormStatus(existingForm.status as FormStatus);
         reset({
-          ...baseValues,
+          full_name: (existingForm.employee_name as string) || baseValues.full_name,
+          email: (existingForm.employee_email as string) || baseValues.email,
+          employee_number: (existingForm.employee_number as string) || baseValues.employee_number,
+          designation: (existingForm.designation as string) || baseValues.designation,
+          grade: (existingForm.grade as string) || baseValues.grade,
           current_project: existingForm.current_project || '',
           total_exp: existingForm.total_exp != null ? Number(existingForm.total_exp) : NaN,
           relevant_exp: existingForm.relevant_exp != null ? Number(existingForm.relevant_exp) : NaN,
           haptiq_exp: existingForm.haptiq_exp != null ? Number(existingForm.haptiq_exp) : NaN,
+          manager_name: baseValues.manager_name,
+          manager_email: baseValues.manager_email,
         }, { keepErrors: false });
 
         const { data: items } = await supabase
@@ -345,6 +351,11 @@ function SkillFormInner() {
       employee_id: user.id,
       manager_id: user.manager_id || null,
       status: statusOverride ?? ('draft' as FormStatus),
+      employee_name: values.full_name,
+      employee_email: values.email,
+      employee_number: values.employee_number,
+      designation: values.designation,
+      grade: values.grade,
       current_project: values.current_project,
       total_exp: isNaN(Number(values.total_exp)) ? null : Number(values.total_exp),
       relevant_exp: isNaN(Number(values.relevant_exp)) ? null : Number(values.relevant_exp),
