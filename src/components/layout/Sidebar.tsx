@@ -28,7 +28,7 @@ type NavItem = {
 const navItems: NavItem[] = [
   { icon: LayoutDashboard, label: 'Dashboard',      path: '/dashboard',     roles: ['employee', 'manager', 'tmg', 'management', 'admin'] },
   { icon: ClipboardList,   label: 'My Skill Form',  path: '/form',          roles: ['employee'] },
-  { icon: Inbox,           label: 'Inbox',           path: '/inbox',         roles: ['manager', 'tmg', 'admin'] },
+  { icon: Inbox,           label: 'Inbox',           path: '/inbox',         roles: ['employee', 'manager', 'tmg', 'admin'] },
   { icon: TrendingUp,      label: 'TMG Dashboard',  path: '/tmg-dashboard', roles: ['tmg', 'admin'] },
   { icon: Activity,        label: 'Form Status',    path: '/status',        roles: ['tmg', 'admin'] },
   { icon: BarChart2,       label: 'Reports',         path: '/reports',       roles: ['management', 'admin'] },

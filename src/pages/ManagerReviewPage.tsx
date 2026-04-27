@@ -14,6 +14,9 @@ import {
   Hash,
   Star,
   Clock,
+  Eye,
+  UserCog,
+  Search,
 } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
 import StepIndicator from '../components/form/StepIndicator';
@@ -24,6 +27,7 @@ import Step2SkillsManager from './form/Step2SkillsManager';
 import Step3CertificationsManager from './form/Step3CertificationsManager';
 import Step4PlansManager from './form/Step4PlansManager';
 import { supabase } from '../lib/supabaseClient';
+import { useAuth } from '../context/AuthContext';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
@@ -56,6 +60,8 @@ function makeDefaultStep2(): Step2Values {
   };
 }
 
+// ─── Sub-components ──────────────────────────────────────────────────────────
+
 interface EmployeeHeaderProps {
   form: ReturnType<typeof useForm<Step1Values>>;
   formStatus: FormStatus;
@@ -74,12 +80,12 @@ interface EmployeeHeaderProps {
 
 function EmployeeHeader({ form: _form, formStatus, employeeData }: EmployeeHeaderProps) {
   const fields = [
-    { icon: User, label: 'Name', value: employeeData.full_name },
-    { icon: Hash, label: 'Emp No.', value: employeeData.employee_number },
-    { icon: Briefcase, label: 'Designation', value: employeeData.designation },
-    { icon: Star, label: 'Grade', value: employeeData.grade },
-    { icon: Clock, label: 'Total Exp', value: employeeData.total_exp != null ? `${employeeData.total_exp} yrs` : '—' },
-    { icon: Clock, label: 'Haptiq Exp', value: employeeData.haptiq_exp != null ? `${employeeData.haptiq_exp} yrs` : '—' },
+    { icon: User,     label: 'Name',       value: employeeData.full_name },
+    { icon: Hash,     label: 'Emp No.',    value: employeeData.employee_number },
+    { icon: Briefcase,label: 'Designation',value: employeeData.designation },
+    { icon: Star,     label: 'Grade',      value: employeeData.grade },
+    { icon: Clock,    label: 'Total Exp',  value: employeeData.total_exp != null ? `${employeeData.total_exp} yrs` : '—' },
+    { icon: Clock,    label: 'Haptiq Exp', value: employeeData.haptiq_exp != null ? `${employeeData.haptiq_exp} yrs` : '—' },
   ];
 
   return (
@@ -96,9 +102,7 @@ function EmployeeHeader({ form: _form, formStatus, employeeData }: EmployeeHeade
               <f.icon size={11} />
               {f.label}
             </span>
-            <span className="text-sm font-body text-gray-800 font-medium truncate">
-              {f.value || '—'}
-            </span>
+            <span className="text-sm font-body text-gray-800 font-medium truncate">{f.value || '—'}</span>
           </div>
         ))}
       </div>
@@ -116,22 +120,17 @@ function EmployeeHeader({ form: _form, formStatus, employeeData }: EmployeeHeade
   );
 }
 
-interface ReturnModalProps {
+function ReturnModal({ onConfirm, onCancel, submitting }: {
   onConfirm: (reason: string) => void;
   onCancel: () => void;
   submitting: boolean;
-}
-
-function ReturnModal({ onConfirm, onCancel, submitting }: ReturnModalProps) {
+}) {
   const [reason, setReason] = useState('');
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onCancel} />
       <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
-        <button
-          onClick={onCancel}
-          className="absolute right-4 top-4 w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-        >
+        <button onClick={onCancel} className="absolute right-4 top-4 w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
           <X size={15} />
         </button>
         <div className="w-12 h-12 rounded-2xl bg-red-50 flex items-center justify-center mb-4">
@@ -149,11 +148,7 @@ function ReturnModal({ onConfirm, onCancel, submitting }: ReturnModalProps) {
           className="w-full px-3.5 py-3 rounded-xl border border-gray-200 text-sm font-body text-gray-800 placeholder-gray-400 resize-none outline-none hover:border-red-300 focus:border-red-400 focus:ring-1 focus:ring-red-100 transition-colors mb-5"
         />
         <div className="flex items-center gap-3 justify-end">
-          <button
-            onClick={onCancel}
-            disabled={submitting}
-            className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold font-heading text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
-          >
+          <button onClick={onCancel} disabled={submitting} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold font-heading text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50">
             Cancel
           </button>
           <button
@@ -170,22 +165,17 @@ function ReturnModal({ onConfirm, onCancel, submitting }: ReturnModalProps) {
   );
 }
 
-interface ApproveModalProps {
+function ApproveModal({ employeeName, onConfirm, onCancel, submitting }: {
   employeeName: string;
   onConfirm: () => void;
   onCancel: () => void;
   submitting: boolean;
-}
-
-function ApproveModal({ employeeName, onConfirm, onCancel, submitting }: ApproveModalProps) {
+}) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onCancel} />
       <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
-        <button
-          onClick={onCancel}
-          className="absolute right-4 top-4 w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-        >
+        <button onClick={onCancel} className="absolute right-4 top-4 w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
           <X size={15} />
         </button>
         <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center mb-4">
@@ -197,11 +187,7 @@ function ApproveModal({ employeeName, onConfirm, onCancel, submitting }: Approve
           All ratings and comments will be saved, the form will be locked, and the employee will be notified.
         </p>
         <div className="flex items-center gap-3 justify-end">
-          <button
-            onClick={onCancel}
-            disabled={submitting}
-            className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold font-heading text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
-          >
+          <button onClick={onCancel} disabled={submitting} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold font-heading text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50">
             Cancel
           </button>
           <button
@@ -218,8 +204,7 @@ function ApproveModal({ employeeName, onConfirm, onCancel, submitting }: Approve
   );
 }
 
-interface AlreadyApprovedBannerProps { employeeName: string }
-function AlreadyApprovedBanner({ employeeName }: AlreadyApprovedBannerProps) {
+function AlreadyApprovedBanner({ employeeName }: { employeeName: string }) {
   return (
     <div className="flex items-center gap-3 px-5 py-3.5 bg-emerald-50 border-b border-emerald-100">
       <CheckCircle2 size={18} className="text-emerald-500 shrink-0" />
@@ -236,21 +221,159 @@ function AlreadyApprovedBanner({ employeeName }: AlreadyApprovedBannerProps) {
   );
 }
 
+// ─── Change Manager Modal (TMG only) ─────────────────────────────────────────
+
+interface ManagerOption { id: string; full_name: string; email: string; }
+
+function ChangeManagerModal({ currentManagerName, employeeId, formId, onClose, onChanged }: {
+  currentManagerName: string;
+  employeeId: string | null;
+  formId: string;
+  onClose: () => void;
+  onChanged: (newName: string, newId: string) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<ManagerOption[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [selected, setSelected] = useState<ManagerOption | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!query.trim() || selected) { setResults([]); return; }
+    debounceRef.current = setTimeout(async () => {
+      setSearching(true);
+      const { data } = await supabase
+        .from('users')
+        .select('id, full_name, email')
+        .ilike('full_name', `%${query.trim()}%`)
+        .eq('is_active', true)
+        .limit(10);
+      setResults(data ?? []);
+      setSearching(false);
+    }, 300);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [query, selected]);
+
+  async function handleSave() {
+    if (!selected) return;
+    setSaving(true);
+    // Update skill_form's manager_id
+    await supabase.from('skill_forms').update({ manager_id: selected.id }).eq('id', formId);
+    // Update employee's users.manager_id
+    if (employeeId) {
+      await supabase.from('users').update({ manager_id: selected.id }).eq('id', employeeId);
+    }
+    onChanged(selected.full_name, selected.id);
+    setSaving(false);
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+        <button onClick={onClose} className="absolute right-4 top-4 w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+          <X size={15} />
+        </button>
+        <div className="w-12 h-12 rounded-2xl bg-sky-50 flex items-center justify-center mb-4">
+          <UserCog size={22} className="text-sky-500" />
+        </div>
+        <h3 className="font-heading font-bold text-gray-900 text-lg mb-1">Change Manager</h3>
+        <p className="text-sm text-gray-500 font-body mb-1">
+          Current manager: <span className="font-semibold text-gray-700">{currentManagerName || '—'}</span>
+        </p>
+        <p className="text-xs text-gray-400 font-body mb-5">
+          Search for any active user to assign as the new manager for this employee.
+        </p>
+
+        <div className="relative mb-3">
+          <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-gray-200 focus-within:border-primary-400 focus-within:ring-1 focus-within:ring-primary-100 transition-all bg-white">
+            <Search size={14} className="text-gray-400 shrink-0" />
+            <input
+              type="text"
+              value={selected ? selected.full_name : query}
+              onChange={(e) => { setQuery(e.target.value); setSelected(null); }}
+              placeholder="Search by name…"
+              className="flex-1 bg-transparent text-sm font-body text-gray-800 placeholder-gray-400 outline-none"
+            />
+            {searching && <Loader2 size={13} className="text-gray-400 animate-spin shrink-0" />}
+            {selected && (
+              <button type="button" onClick={() => { setSelected(null); setQuery(''); }} className="text-gray-400 hover:text-gray-600">
+                <X size={13} />
+              </button>
+            )}
+          </div>
+
+          {results.length > 0 && !selected && (
+            <div className="absolute z-10 mt-1 w-full bg-white rounded-xl border border-gray-200 shadow-lg overflow-hidden">
+              {results.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onMouseDown={() => { setSelected(m); setQuery(m.full_name); setResults([]); }}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 text-left transition-colors"
+                >
+                  <div className="w-7 h-7 rounded-full bg-primary-100 flex items-center justify-center shrink-0">
+                    <span className="text-primary-600 text-[10px] font-bold font-heading">
+                      {m.full_name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)}
+                    </span>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold font-heading text-gray-800 truncate">{m.full_name}</p>
+                    <p className="text-xs text-gray-400 font-body truncate">{m.email}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {selected && (
+          <div className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl bg-sky-50 border border-sky-100 mb-4">
+            <CheckCircle2 size={15} className="text-sky-500 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold font-heading text-sky-800 truncate">{selected.full_name}</p>
+              <p className="text-xs text-sky-600 font-body truncate">{selected.email}</p>
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-3 justify-end">
+          <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold font-heading text-gray-600 hover:bg-gray-50 transition-colors">
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={!selected || saving}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 disabled:opacity-40 text-white text-sm font-semibold font-heading transition-all"
+          >
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <UserCog size={14} />}
+            {saving ? 'Saving…' : 'Assign Manager'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+
 export default function ManagerReviewPage() {
   const { formId } = useParams<{ formId: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [currentStep, setCurrentStep] = useState(1);
   const [formStatus, setFormStatus] = useState<FormStatus>('pending_review');
+  const [formManagerId, setFormManagerId] = useState<string | null>(null);
+  const [formManagerName, setFormManagerName] = useState('');
   const [employeeId, setEmployeeId] = useState<string | null>(null);
   const [employeeData, setEmployeeData] = useState({
-    full_name: '',
-    email: '',
-    employee_number: '',
-    designation: '',
-    grade: '',
-    current_project: '',
+    full_name: '', email: '', employee_number: '',
+    designation: '', grade: '', current_project: '',
     total_exp: undefined as number | undefined,
     relevant_exp: undefined as number | undefined,
     haptiq_exp: undefined as number | undefined,
@@ -262,6 +385,7 @@ export default function ManagerReviewPage() {
 
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [showReturnModal, setShowReturnModal] = useState(false);
+  const [showChangeManagerModal, setShowChangeManagerModal] = useState(false);
   const [actioning, setActioning] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
 
@@ -269,6 +393,9 @@ export default function ManagerReviewPage() {
   const [toastMsg, setToastMsg] = useState('');
 
   const isApproved = formStatus === 'approved';
+  const isTmg = user?.role === 'tmg';
+  // View-only if TMG AND not the assigned manager
+  const isViewOnly = isApproved || (isTmg && formManagerId !== user?.id);
 
   const form = useForm<Step1Values>({
     resolver: zodResolver(step1Schema),
@@ -294,6 +421,17 @@ export default function ManagerReviewPage() {
 
       setFormStatus(sf.status as FormStatus);
       setEmployeeId(sf.employee_id);
+      setFormManagerId(sf.manager_id ?? null);
+
+      // Fetch manager name if we have a manager_id
+      if (sf.manager_id) {
+        const { data: mgr } = await supabase
+          .from('users')
+          .select('full_name')
+          .eq('id', sf.manager_id)
+          .maybeSingle();
+        setFormManagerName(mgr?.full_name ?? '');
+      }
 
       const emp = sf.users as Record<string, unknown>;
       const ed = {
@@ -352,7 +490,6 @@ export default function ManagerReviewPage() {
         certifications: rawCerts && rawCerts.length > 0 ? rawCerts : [''],
         certifications_manager_comment: '',
       });
-
       setStep4({
         upskilling_plan: sf.upskilling_plan || '',
         manager_expectation_plan: sf.manager_expectation_plan || '',
@@ -429,13 +566,8 @@ export default function ManagerReviewPage() {
   async function handleApprove() {
     setActioning(true);
     const ok = await saveManagerInputs('approved');
-    if (!ok) {
-      setActioning(false);
-      showToast('Approval failed — please retry.');
-      return;
-    }
+    if (!ok) { setActioning(false); showToast('Approval failed — please retry.'); return; }
     setFormStatus('approved');
-
     if (employeeId) {
       await supabase.from('notifications').insert({
         user_id: employeeId,
@@ -444,7 +576,6 @@ export default function ManagerReviewPage() {
         form_id: formId,
       });
     }
-
     setActioning(false);
     setShowApproveModal(false);
     navigate('/inbox', { state: { toast: `${employeeData.full_name}'s Skill Profile approved!` } });
@@ -453,13 +584,8 @@ export default function ManagerReviewPage() {
   async function handleReturn(reason: string) {
     setActioning(true);
     const ok = await saveManagerInputs('returned');
-    if (!ok) {
-      setActioning(false);
-      showToast('Action failed — please retry.');
-      return;
-    }
+    if (!ok) { setActioning(false); showToast('Action failed — please retry.'); return; }
     setFormStatus('returned');
-
     if (employeeId) {
       await supabase.from('notifications').insert({
         user_id: employeeId,
@@ -468,7 +594,6 @@ export default function ManagerReviewPage() {
         form_id: formId,
       });
     }
-
     setActioning(false);
     setShowReturnModal(false);
     navigate('/inbox', { state: { toast: `Form returned to ${employeeData.full_name} for revision.` } });
@@ -499,20 +624,41 @@ export default function ManagerReviewPage() {
             </button>
             <div className="flex-1 min-w-0">
               <h1 className="font-heading font-bold text-xl text-gray-900 truncate">
-                Reviewing: {employeeData.full_name || 'Employee'}
+                {isViewOnly && !isApproved ? 'Viewing: ' : 'Reviewing: '}{employeeData.full_name || 'Employee'}
               </h1>
               <p className="text-xs text-gray-400 font-body">
                 {employeeData.designation}
                 {employeeData.grade ? ` · ${employeeData.grade}` : ''}
+                {formManagerName ? ` · Manager: ${formManagerName}` : ''}
               </p>
             </div>
-            <StatusBadge status={formStatus} />
+            <div className="flex items-center gap-2 shrink-0">
+              {isTmg && (
+                <button
+                  onClick={() => setShowChangeManagerModal(true)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-sky-200 text-sky-600 bg-sky-50 hover:bg-sky-100 text-xs font-semibold font-heading transition-colors"
+                >
+                  <UserCog size={13} />
+                  Change Manager
+                </button>
+              )}
+              <StatusBadge status={formStatus} />
+            </div>
           </div>
 
           <div className="bg-white rounded-2xl shadow-sm shadow-gray-200/80 border border-gray-100 overflow-hidden">
             {isApproved && <AlreadyApprovedBanner employeeName={employeeData.full_name} />}
 
-            {!isApproved && (
+            {/* Mode banner */}
+            {!isApproved && isViewOnly && (
+              <div className="flex items-center gap-2 px-5 py-3 bg-sky-50 border-b border-sky-100">
+                <Eye size={14} className="text-sky-500 shrink-0" />
+                <p className="text-xs text-sky-700 font-body">
+                  You are in <span className="font-semibold">view-only mode</span>. You can read this form but cannot edit it — you are not the assigned manager.
+                </p>
+              </div>
+            )}
+            {!isApproved && !isViewOnly && (
               <div className="flex items-center gap-2 px-5 py-3 bg-amber-50 border-b border-amber-100">
                 <AlertTriangle size={14} className="text-amber-500 shrink-0" />
                 <p className="text-xs text-amber-700 font-body">
@@ -532,9 +678,7 @@ export default function ManagerReviewPage() {
                     {FORM_STEPS.find((s) => s.number === currentStep)?.label}
                   </span>
                 </p>
-                <p className="text-[10px] text-gray-400 font-body font-mono">
-                  #{formId?.slice(0, 8)}
-                </p>
+                <p className="text-[10px] text-gray-400 font-body font-mono">#{formId?.slice(0, 8)}</p>
               </div>
             </div>
 
@@ -545,19 +689,19 @@ export default function ManagerReviewPage() {
               {currentStep === 2 && (
                 <Step2SkillsManager
                   values={step2}
-                  onChange={isApproved ? () => {} : setStep2}
+                  onChange={isViewOnly ? () => {} : setStep2}
                 />
               )}
               {currentStep === 3 && (
                 <Step3CertificationsManager
                   values={step3}
-                  onChange={isApproved ? () => {} : setStep3}
+                  onChange={isViewOnly ? () => {} : setStep3}
                 />
               )}
               {currentStep === 4 && (
                 <Step4PlansManager
                   values={step4}
-                  onChange={isApproved ? () => {} : setStep4}
+                  onChange={isViewOnly ? () => {} : setStep4}
                 />
               )}
             </div>
@@ -571,7 +715,7 @@ export default function ManagerReviewPage() {
                   <ArrowLeft size={14} /> Back
                 </button>
               )}
-              {!isApproved && (
+              {!isViewOnly && (
                 <button
                   onClick={handleSave}
                   disabled={saveState === 'saving'}
@@ -593,16 +737,13 @@ export default function ManagerReviewPage() {
           </div>
         </div>
 
-        {!isApproved && (
+        {/* Bottom action bar — only for the assigned manager, not TMG viewers */}
+        {!isViewOnly && (
           <div className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 shadow-xl shadow-black/5">
             <div className="max-w-3xl mx-auto px-6 py-4 flex items-center gap-3">
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold font-heading text-gray-800 truncate">
-                  {employeeData.full_name}
-                </p>
-                <p className="text-xs text-gray-400 font-body">
-                  Pending your review
-                </p>
+                <p className="text-sm font-semibold font-heading text-gray-800 truncate">{employeeData.full_name}</p>
+                <p className="text-xs text-gray-400 font-body">Pending your review</p>
               </div>
               <button
                 onClick={() => setShowReturnModal(true)}
@@ -636,6 +777,19 @@ export default function ManagerReviewPage() {
           onConfirm={handleReturn}
           onCancel={() => setShowReturnModal(false)}
           submitting={actioning}
+        />
+      )}
+      {showChangeManagerModal && (
+        <ChangeManagerModal
+          currentManagerName={formManagerName}
+          employeeId={employeeId}
+          formId={formId!}
+          onClose={() => setShowChangeManagerModal(false)}
+          onChanged={(newName, newId) => {
+            setFormManagerName(newName);
+            setFormManagerId(newId);
+            showToast(`Manager changed to ${newName}`);
+          }}
         />
       )}
 

@@ -346,10 +346,21 @@ function SkillFormInner() {
     const values = getValues();
     const certList = step3.certifications.filter((c) => c.trim() !== '');
 
+    // Resolve manager_id from the email entered in the form
+    let resolvedManagerId: string | null = user.manager_id || null;
+    if (values.manager_email?.trim()) {
+      const { data: mgr } = await supabase
+        .from('users')
+        .select('id')
+        .eq('email', values.manager_email.trim())
+        .maybeSingle();
+      if (mgr?.id) resolvedManagerId = mgr.id;
+    }
+
     const upsertPayload = {
       ...(formId ? { id: formId } : {}),
       employee_id: user.id,
-      manager_id: user.manager_id || null,
+      manager_id: resolvedManagerId,
       status: statusOverride ?? ('draft' as FormStatus),
       employee_name: values.full_name,
       employee_email: values.email,
@@ -379,12 +390,13 @@ function SkillFormInner() {
 
     if (error) return null;
 
-    const userUpdate: Record<string, string> = {
+    const userUpdate: Record<string, unknown> = {
       full_name: values.full_name,
       email: values.email,
       employee_number: values.employee_number,
       designation: values.designation,
       grade: values.grade,
+      manager_id: resolvedManagerId,
     };
     await supabase.from('users').update(userUpdate).eq('id', user.id);
 

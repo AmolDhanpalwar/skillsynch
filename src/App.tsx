@@ -73,7 +73,7 @@ function AppRoutes() {
         <Route
           path="/inbox"
           element={
-            <PrivateRoute allowedRoles={['manager', 'tmg', 'admin']}>
+            <PrivateRoute allowedRoles={['employee', 'manager', 'tmg', 'admin']}>
               <InboxPage />
             </PrivateRoute>
           }
@@ -81,7 +81,7 @@ function AppRoutes() {
         <Route
           path="/inbox/review/:formId"
           element={
-            <PrivateRoute allowedRoles={['manager', 'tmg', 'admin']}>
+            <PrivateRoute allowedRoles={['employee', 'manager', 'tmg', 'admin']}>
               <ManagerReviewPage />
             </PrivateRoute>
           }
