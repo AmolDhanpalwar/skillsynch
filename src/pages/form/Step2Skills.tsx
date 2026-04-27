@@ -82,13 +82,12 @@ function LockedTextarea({ value }: { value: string }) {
 interface SkillNamePickerProps {
   value: string;
   masterList: string[];
-  usedNames: string[];        // other rows' names to exclude
-  isNew: boolean;             // seed rows are read-only
+  usedNames: string[];
   onChange: (name: string) => void;
   error?: string;
 }
 
-function SkillNamePicker({ value, masterList, usedNames, isNew, onChange, error }: SkillNamePickerProps) {
+function SkillNamePicker({ value, masterList, usedNames, onChange, error }: SkillNamePickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
@@ -115,10 +114,6 @@ function SkillNamePicker({ value, masterList, usedNames, isNew, onChange, error 
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
-
-  if (!isNew) {
-    return <span className="text-sm font-body text-gray-800">{value}</span>;
-  }
 
   return (
     <div className="relative" ref={containerRef}>
@@ -222,8 +217,8 @@ function SkillTable({
     return rows.filter((r) => r.id !== currentId).map((r) => r.name);
   }
 
-  // Can we add another row? Only if all new rows have a name selected
-  const canAdd = !loading && rows.filter((r) => !r.is_seed).every((r) => r.name.trim() !== '');
+  // Can we add another row? Only if every existing row already has a name selected
+  const canAdd = !loading && rows.every((r) => r.name.trim() !== '');
 
   return (
     <div>
@@ -265,7 +260,7 @@ function SkillTable({
                     value={row.name}
                     masterList={masterList}
                     usedNames={otherNames(row.id)}
-                    isNew={!row.is_seed}
+
                     onChange={(name) => onChangeName(row.id, name)}
                     error={duplicateIds.has(row.id) ? 'Duplicate' : undefined}
                   />
@@ -283,15 +278,13 @@ function SkillTable({
                   <LockedTextarea value={row.manager_comment} />
                 </td>
                 <td className="px-3 py-2.5 text-center">
-                  {!row.is_seed && (
-                    <button
-                      type="button"
-                      onClick={() => onRemove(row.id)}
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => onRemove(row.id)}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </td>
               </tr>
             ))}
