@@ -64,20 +64,25 @@ interface ManagerOption { id: string; full_name: string; email: string; }
 interface ChangeManagerModalProps {
   employee: EmployeeRow;
   onClose: () => void;
-  onChanged: (employeeId: string, newManagerId: string, newManagerName: string) => void;
+  onChanged: (employeeId: string, newManagerId: string | null, newManagerName: string) => void;
 }
 
 function ChangeManagerModal({ employee, onClose, onChanged }: ChangeManagerModalProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<ManagerOption[]>([]);
+  const [searched, setSearched] = useState(false); // true after first completed search
   const [searching, setSearching] = useState(false);
   const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState<ManagerOption | null>(null);
+  const [manualEmail, setManualEmail] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // True when user has typed enough and got zero DB results (and hasn't selected anyone)
+  const showManualEmail = !selected && searched && results.length === 0 && query.trim().length > 1;
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!query.trim() || selected) { setResults([]); return; }
+    if (!query.trim() || selected) { setResults([]); setSearched(false); return; }
     debounceRef.current = setTimeout(async () => {
       setSearching(true);
       const { data } = await supabase
@@ -87,21 +92,44 @@ function ChangeManagerModal({ employee, onClose, onChanged }: ChangeManagerModal
         .eq('is_active', true)
         .limit(10);
       setResults(data ?? []);
+      setSearched(true);
       setSearching(false);
     }, 300);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [query, selected]);
 
+  function clearSelection() {
+    setSelected(null);
+    setQuery('');
+    setResults([]);
+    setSearched(false);
+    setManualEmail('');
+  }
+
+  const canSave = selected
+    ? true
+    : showManualEmail && query.trim().length > 1 && manualEmail.trim().includes('@');
+
   async function handleSave() {
-    if (!selected) return;
+    if (!canSave) return;
     setSaving(true);
-    // Update employee's users.manager_id
-    await supabase.from('users').update({ manager_id: selected.id }).eq('id', employee.id);
-    // Also update any existing skill_form for this employee
-    if (employee.form_id) {
-      await supabase.from('skill_forms').update({ manager_id: selected.id }).eq('id', employee.form_id);
+
+    if (selected) {
+      // DB user selected — link by ID
+      await supabase.from('users').update({ manager_id: selected.id }).eq('id', employee.id);
+      if (employee.form_id) {
+        await supabase.from('skill_forms').update({ manager_id: selected.id }).eq('id', employee.form_id);
+      }
+      onChanged(employee.id, selected.id, selected.full_name);
+    } else {
+      // Manual entry — store name + email on the form only; no user row to link
+      await supabase.from('users').update({ manager_id: null }).eq('id', employee.id);
+      if (employee.form_id) {
+        await supabase.from('skill_forms').update({ manager_id: null }).eq('id', employee.form_id);
+      }
+      onChanged(employee.id, null, query.trim());
     }
-    onChanged(employee.id, selected.id, selected.full_name);
+
     setSaving(false);
     onClose();
   }
@@ -125,32 +153,36 @@ function ChangeManagerModal({ employee, onClose, onChanged }: ChangeManagerModal
           Current manager: <span className="font-semibold text-gray-700">{employee.manager_name || '—'}</span>
         </p>
 
-        <div className="relative mb-3">
-          <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-gray-200 focus-within:border-primary-400 focus-within:ring-1 focus-within:ring-primary-100 transition-all bg-white">
+        {/* Name search */}
+        <div className="relative mb-2">
+          <div className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl border transition-all bg-white
+            ${selected ? 'border-sky-300 ring-1 ring-sky-100' : 'border-gray-200 focus-within:border-primary-400 focus-within:ring-1 focus-within:ring-primary-100'}`}>
             <Search size={14} className="text-gray-400 shrink-0" />
             <input
               type="text"
               value={selected ? selected.full_name : query}
-              onChange={(e) => { setQuery(e.target.value); setSelected(null); }}
+              onChange={(e) => { setQuery(e.target.value); setSelected(null); setManualEmail(''); }}
               placeholder="Search by name…"
               className="flex-1 bg-transparent text-sm font-body text-gray-800 placeholder-gray-400 outline-none"
               autoFocus
+              readOnly={!!selected}
             />
             {searching && <Loader2 size={13} className="text-gray-400 animate-spin shrink-0" />}
-            {selected && (
-              <button type="button" onClick={() => { setSelected(null); setQuery(''); }} className="text-gray-400 hover:text-gray-600">
+            {(selected || query) && !searching && (
+              <button type="button" onClick={clearSelection} className="text-gray-400 hover:text-gray-600 transition-colors">
                 <X size={13} />
               </button>
             )}
           </div>
 
+          {/* Dropdown — DB matches */}
           {results.length > 0 && !selected && (
             <div className="absolute z-10 mt-1 w-full bg-white rounded-xl border border-gray-200 shadow-lg overflow-hidden">
               {results.map((m) => (
                 <button
                   key={m.id}
                   type="button"
-                  onMouseDown={() => { setSelected(m); setQuery(m.full_name); setResults([]); }}
+                  onMouseDown={() => { setSelected(m); setResults([]); setManualEmail(''); }}
                   className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 text-left transition-colors"
                 >
                   <div className="w-7 h-7 rounded-full bg-primary-100 flex items-center justify-center shrink-0">
@@ -168,6 +200,7 @@ function ChangeManagerModal({ employee, onClose, onChanged }: ChangeManagerModal
           )}
         </div>
 
+        {/* Selected DB user confirmation */}
         {selected && (
           <div className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl bg-sky-50 border border-sky-100 mb-4">
             <CheckCircle2 size={15} className="text-sky-500 shrink-0" />
@@ -178,13 +211,32 @@ function ChangeManagerModal({ employee, onClose, onChanged }: ChangeManagerModal
           </div>
         )}
 
-        <div className="flex gap-3 justify-end">
+        {/* No match found — ask for email */}
+        {showManualEmail && (
+          <div className="space-y-2 mb-4">
+            <p className="text-xs text-amber-600 font-body bg-amber-50 border border-amber-100 rounded-xl px-3.5 py-2.5">
+              No user found with that name. Enter their email to save manually.
+            </p>
+            <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-gray-200 focus-within:border-primary-400 focus-within:ring-1 focus-within:ring-primary-100 transition-all bg-white">
+              <span className="text-xs text-gray-400 font-body shrink-0">@</span>
+              <input
+                type="email"
+                value={manualEmail}
+                onChange={(e) => setManualEmail(e.target.value)}
+                placeholder="manager@company.com"
+                className="flex-1 bg-transparent text-sm font-body text-gray-800 placeholder-gray-400 outline-none"
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-3 justify-end mt-2">
           <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold font-heading text-gray-600 hover:bg-gray-50 transition-colors">
             Cancel
           </button>
           <button
             onClick={handleSave}
-            disabled={!selected || saving}
+            disabled={!canSave || saving}
             className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 disabled:opacity-40 text-white text-sm font-semibold font-heading transition-all"
           >
             {saving ? <Loader2 size={14} className="animate-spin" /> : <UserCog size={14} />}
@@ -504,7 +556,9 @@ export default function TmgDashboardPage() {
           onChanged={(empId, newMgrId, newMgrName) => {
             setRows((prev) =>
               prev.map((r) =>
-                r.id === empId ? { ...r, manager_id: newMgrId, manager_name: newMgrName } : r
+                r.id === empId
+                  ? { ...r, manager_id: newMgrId, manager_name: newMgrName || '—' }
+                  : r
               )
             );
             showToast(`Manager updated to ${newMgrName}`);
