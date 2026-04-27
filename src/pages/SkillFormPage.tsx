@@ -156,7 +156,8 @@ function SkillFormInner() {
       manager_name: '',
       manager_email: '',
     },
-    mode: 'onBlur',
+    mode: 'onSubmit',
+    reValidateMode: 'onChange',
   });
 
   const { watch, reset, getValues, trigger } = form;

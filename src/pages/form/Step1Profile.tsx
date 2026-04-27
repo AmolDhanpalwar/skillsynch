@@ -82,8 +82,8 @@ export default function Step1Profile({ form }: Step1ProfileProps) {
     setQuery(m.full_name);
     setOpen(false);
     setResults([]);
-    setValue('manager_name', m.full_name, { shouldDirty: true, shouldValidate: true });
-    setValue('manager_email', m.email, { shouldDirty: true, shouldValidate: true });
+    setValue('manager_name', m.full_name, { shouldDirty: true });
+    setValue('manager_email', m.email, { shouldDirty: true });
   }
 
   function clearManager() {
