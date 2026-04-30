@@ -325,7 +325,7 @@ export default function Step1Profile({ form }: Step1ProfileProps) {
         {/* Manager Name — searchable lookup */}
         <div className="flex flex-col gap-1.5" ref={containerRef}>
           <label className="text-xs font-semibold font-heading text-gray-600 uppercase tracking-wide">
-            Manager Name
+            Manager Name<span className="text-red-400 ml-0.5">*</span>
           </label>
           <div className="relative">
             <div className="flex items-center gap-2 w-full px-3.5 py-2.5 rounded-xl border text-sm font-body bg-white border-gray-200 hover:border-gray-300 focus-within:border-accent-400 focus-within:ring-2 focus-within:ring-accent-400/15 transition-all">
@@ -397,6 +397,7 @@ export default function Step1Profile({ form }: Step1ProfileProps) {
         <FormField
           label="Manager Email"
           type="email"
+          required
           placeholder="manager@company.com"
           hint={selectedManager ? 'Auto-filled from manager lookup' : undefined}
           error={errors.manager_email?.message}

@@ -34,8 +34,8 @@ export const step1Schema = z.object({
   total_exp: expField,
   relevant_exp: expField,
   haptiq_exp: expField,
-  manager_name: z.string(),
-  manager_email: z.string(),
+  manager_name: z.string().min(1, 'Manager name is required'),
+  manager_email: z.string().email('Enter a valid manager email'),
 });
 
 export type Step1Values = z.infer<typeof step1Schema>;
