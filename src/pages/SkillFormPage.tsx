@@ -139,7 +139,7 @@ function SkillFormInner() {
   const [step4, setStep4] = useState<Step4Values>(makeDefaultStep4);
 
   const isApproved = formStatus === 'approved';
-  const isLocked = isApproved || formStatus === 'pending_review';
+  const isLocked = isApproved;
 
   const form = useForm<Step1Input, unknown, Step1Values>({
     resolver: zodResolver(step1Schema),
@@ -569,11 +569,10 @@ function SkillFormInner() {
               !isApproved && (
                 <button
                   onClick={() => setShowConfirmModal(true)}
-                  disabled={isLocked && !isApproved}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold font-heading transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold font-heading transition-all active:scale-[0.98]"
                 >
                   <CheckCircle2 size={15} />
-                  Submit for Manager Review
+                  {formStatus === 'pending_review' ? 'Resubmit for Review' : 'Submit for Manager Review'}
                 </button>
               )
             ) : (
