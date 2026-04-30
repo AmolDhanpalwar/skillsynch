@@ -176,12 +176,25 @@ function SkillFormInner() {
 
       const existingForm = existingFormRes.data;
 
-      // Resolve manager from form's manager_id first, fall back to user's manager_id
-      const managerId = existingForm?.manager_id ?? user!.manager_id ?? null;
-      const managerRes = managerId
-        ? await supabase.from('users').select('full_name, email').eq('id', managerId).maybeSingle()
-        : { data: null };
-      const manager = managerRes.data;
+      // Prefer manager name/email stored directly on the form.
+      // Fall back to looking up via manager_id (covers older records).
+      let resolvedManagerName = (existingForm?.manager_name as string | null) || '';
+      let resolvedManagerEmail = (existingForm?.manager_email as string | null) || '';
+
+      if ((!resolvedManagerName || !resolvedManagerEmail)) {
+        const managerId = existingForm?.manager_id ?? user!.manager_id ?? null;
+        if (managerId) {
+          const { data: mgr } = await supabase
+            .from('users')
+            .select('full_name, email')
+            .eq('id', managerId)
+            .maybeSingle();
+          if (mgr) {
+            resolvedManagerName = resolvedManagerName || mgr.full_name || '';
+            resolvedManagerEmail = resolvedManagerEmail || mgr.email || '';
+          }
+        }
+      }
 
       const baseValues: Step1Input = {
         full_name: user!.full_name || '',
@@ -193,8 +206,8 @@ function SkillFormInner() {
         total_exp: '',
         relevant_exp: '',
         haptiq_exp: '',
-        manager_name: manager?.full_name || '',
-        manager_email: manager?.email || '',
+        manager_name: resolvedManagerName,
+        manager_email: resolvedManagerEmail,
       };
 
       if (existingForm) {
@@ -344,7 +357,7 @@ function SkillFormInner() {
     const certList = step3.certifications.filter((c) => c.trim() !== '');
 
     // Resolve manager_id from the email entered in the form
-    let resolvedManagerId: string | null = user.manager_id || null;
+    let resolvedManagerId: string | null = null;
     if (values.manager_email?.trim()) {
       const { data: mgr } = await supabase
         .from('users')
@@ -353,11 +366,14 @@ function SkillFormInner() {
         .maybeSingle();
       if (mgr?.id) resolvedManagerId = mgr.id;
     }
+    if (!resolvedManagerId) resolvedManagerId = user.manager_id || null;
 
     const upsertPayload = {
       ...(formId ? { id: formId } : {}),
       employee_id: user.id,
       manager_id: resolvedManagerId,
+      manager_name: values.manager_name?.trim() || null,
+      manager_email: values.manager_email?.trim() || null,
       status: statusOverride ?? ('draft' as FormStatus),
       employee_name: values.full_name,
       employee_email: values.email,
