@@ -10,6 +10,7 @@ import {
   Users,
   ChevronDown,
   Search,
+  Download,
 } from 'lucide-react';
 import {
   BarChart,
@@ -28,6 +29,7 @@ import {
 import AppShell from '../components/layout/AppShell';
 import { Skeleton } from '../components/ui/Skeleton';
 import { supabase } from '../lib/supabaseClient';
+import { exportSkillsMatrix } from '../lib/exportService';
 
 type TabId = 'languages' | 'frameworks' | 'tools' | 'databases' | 'certifications';
 
@@ -278,6 +280,18 @@ export default function SkillsMatrixPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<SortKey>('count');
+  const [exporting, setExporting] = useState(false);
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      await exportSkillsMatrix();
+    } catch (err) {
+      console.error('Export failed:', err);
+    } finally {
+      setExporting(false);
+    }
+  }
 
   useEffect(() => {
     async function load() {
@@ -422,11 +436,21 @@ export default function SkillsMatrixPage() {
   return (
     <AppShell>
       <div className="max-w-6xl mx-auto space-y-6">
-        <div>
-          <h1 className="font-heading font-bold text-2xl text-gray-900">Skills Matrix</h1>
-          <p className="text-sm text-gray-500 font-body mt-1">
-            Aggregated skill statistics across all submitted employee forms.
-          </p>
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h1 className="font-heading font-bold text-2xl text-gray-900">Skills Matrix</h1>
+            <p className="text-sm text-gray-500 font-body mt-1">
+              Aggregated skill statistics across all submitted employee forms.
+            </p>
+          </div>
+          <button
+            onClick={handleExport}
+            disabled={exporting || loading || !data}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold font-heading transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+          >
+            <Download size={15} />
+            Download
+          </button>
         </div>
 
         {loading ? (

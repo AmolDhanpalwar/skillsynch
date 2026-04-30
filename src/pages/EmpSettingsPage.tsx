@@ -11,10 +11,12 @@ import {
   X,
   AlertCircle,
   ChevronDown,
+  Download,
 } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
 import { Skeleton } from '../components/ui/Skeleton';
 import { supabase } from '../lib/supabaseClient';
+import { exportEmpSettings } from '../lib/exportService';
 
 type EmpTableName = 'settings_grades' | 'settings_designations';
 
@@ -410,16 +412,38 @@ function SettingsPanel({ tab }: { tab: TabConfig }) {
 
 export default function EmpSettingsPage() {
   const [activeTab, setActiveTab] = useState<TabId>('grades');
+  const [exporting, setExporting] = useState(false);
   const currentTab = TABS.find((t) => t.id === activeTab)!;
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      await exportEmpSettings();
+    } catch (err) {
+      console.error('Export failed:', err);
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return (
     <AppShell>
       <div className="max-w-3xl mx-auto space-y-6">
-        <div>
-          <h1 className="font-heading font-bold text-2xl text-gray-900">Emp Settings</h1>
-          <p className="text-sm text-gray-400 font-body mt-1">
-            Manage grade and designation lists shown to employees on their skill form.
-          </p>
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h1 className="font-heading font-bold text-2xl text-gray-900">Emp Settings</h1>
+            <p className="text-sm text-gray-400 font-body mt-1">
+              Manage grade and designation lists shown to employees on their skill form.
+            </p>
+          </div>
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold font-heading transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+          >
+            <Download size={15} />
+            Download
+          </button>
         </div>
 
         <div className="flex gap-1 p-1 bg-gray-100 rounded-2xl overflow-x-auto">

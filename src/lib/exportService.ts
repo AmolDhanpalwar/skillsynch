@@ -301,3 +301,144 @@ export async function exportToExcel(filters: ExportFilters = {}): Promise<void> 
   const filename = `skillsync-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
   XLSX.writeFile(wb, filename);
 }
+
+export async function exportSkillsMatrix(): Promise<void> {
+  const [formsRes, itemsRes] = await Promise.all([
+    supabase.from('skill_forms').select('id, status, tools, databases, certifications'),
+    supabase.from('skill_items').select('category, name, employee_rating, manager_rating'),
+  ]);
+
+  const forms = formsRes.data ?? [];
+  const items = itemsRes.data ?? [];
+
+  function aggregateSkillItems(category: 'language' | 'framework'): Array<{ name: string; count: number; avg_employee: number; avg_manager: number }> {
+    const map = new Map<string, { emp: number[]; mgr: number[] }>();
+    items
+      .filter((i) => i.category === category && i.employee_rating !== null)
+      .forEach((i) => {
+        if (!map.has(i.name)) map.set(i.name, { emp: [], mgr: [] });
+        const entry = map.get(i.name)!;
+        entry.emp.push(Number(i.employee_rating));
+        if (i.manager_rating !== null) entry.mgr.push(Number(i.manager_rating));
+      });
+    const result: Array<{ name: string; count: number; avg_employee: number; avg_manager: number }> = [];
+    map.forEach((v, name) => {
+      const avg_emp = v.emp.length ? v.emp.reduce((a, b) => a + b, 0) / v.emp.length : 0;
+      const avg_mgr = v.mgr.length ? v.mgr.reduce((a, b) => a + b, 0) / v.mgr.length : 0;
+      result.push({
+        name,
+        count: v.emp.length,
+        avg_employee: Math.round(avg_emp * 100) / 100,
+        avg_manager: Math.round(avg_mgr * 100) / 100,
+      });
+    });
+    return result.sort((a, b) => b.count - a.count);
+  }
+
+  function aggregateText(field: 'tools' | 'databases'): Array<{ name: string; count: number }> {
+    const map = new Map<string, number>();
+    forms.forEach((f) => {
+      const raw: string = (f[field] as string) ?? '';
+      raw.split(',').map((s: string) => s.trim()).filter(Boolean).forEach((t: string) => {
+        map.set(t, (map.get(t) ?? 0) + 1);
+      });
+    });
+    return Array.from(map.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+  }
+
+  const wb = XLSX.utils.book_new();
+  wb.Props = { Title: 'SkillSync Skills Matrix', Author: 'SkillSync' };
+
+  const languages = aggregateSkillItems('language');
+  const frameworks = aggregateSkillItems('framework');
+  const tools = aggregateText('tools');
+  const databases = aggregateText('databases');
+
+  const sheetHeaders = ['Name', 'Count', 'Avg Self Rating', 'Avg Manager Rating'];
+  const sheetData: unknown[][] = [sheetHeaders];
+
+  languages.forEach((row) => {
+    sheetData.push([row.name, row.count, row.avg_employee, row.avg_manager]);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(sheetData);
+  ws['!cols'] = autoWidth(sheetData);
+  ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+  applyHeaderStyle(ws, XLSX.utils.decode_range(ws['!ref'] ?? 'A1'));
+  XLSX.utils.book_append_sheet(wb, ws, 'Languages');
+
+  const fwkHeaders = ['Name', 'Count', 'Avg Self Rating', 'Avg Manager Rating'];
+  const fwkData: unknown[][] = [fwkHeaders];
+  frameworks.forEach((row) => {
+    fwkData.push([row.name, row.count, row.avg_employee, row.avg_manager]);
+  });
+  const fwkWs = XLSX.utils.aoa_to_sheet(fwkData);
+  fwkWs['!cols'] = autoWidth(fwkData);
+  fwkWs['!freeze'] = { xSplit: 0, ySplit: 1 };
+  applyHeaderStyle(fwkWs, XLSX.utils.decode_range(fwkWs['!ref'] ?? 'A1'));
+  XLSX.utils.book_append_sheet(wb, fwkWs, 'Frameworks');
+
+  const txtHeaders = ['Name', 'Count'];
+  const toolsData: unknown[][] = [txtHeaders];
+  tools.forEach((row) => {
+    toolsData.push([row.name, row.count]);
+  });
+  const toolsWs = XLSX.utils.aoa_to_sheet(toolsData);
+  toolsWs['!cols'] = autoWidth(toolsData);
+  toolsWs['!freeze'] = { xSplit: 0, ySplit: 1 };
+  applyHeaderStyle(toolsWs, XLSX.utils.decode_range(toolsWs['!ref'] ?? 'A1'));
+  XLSX.utils.book_append_sheet(wb, toolsWs, 'Tools');
+
+  const dbData: unknown[][] = [txtHeaders];
+  databases.forEach((row) => {
+    dbData.push([row.name, row.count]);
+  });
+  const dbWs = XLSX.utils.aoa_to_sheet(dbData);
+  dbWs['!cols'] = autoWidth(dbData);
+  dbWs['!freeze'] = { xSplit: 0, ySplit: 1 };
+  applyHeaderStyle(dbWs, XLSX.utils.decode_range(dbWs['!ref'] ?? 'A1'));
+  XLSX.utils.book_append_sheet(wb, dbWs, 'Databases');
+
+  const filename = `skillsync-matrix-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  XLSX.writeFile(wb, filename);
+}
+
+export async function exportEmpSettings(): Promise<void> {
+  const [gradesRes, designationsRes] = await Promise.all([
+    supabase.from('settings_grades').select('name, is_active').order('name'),
+    supabase.from('settings_designations').select('name, is_active').order('name'),
+  ]);
+
+  const grades = (gradesRes.data ?? []) as Array<{ name: string; is_active: boolean }>;
+  const designations = (designationsRes.data ?? []) as Array<{ name: string; is_active: boolean }>;
+
+  const wb = XLSX.utils.book_new();
+  wb.Props = { Title: 'SkillSync Emp Settings', Author: 'SkillSync' };
+
+  const gradesHeaders = ['Grade', 'Status'];
+  const gradesData: unknown[][] = [gradesHeaders];
+  grades.forEach((row) => {
+    gradesData.push([row.name, row.is_active ? 'Active' : 'Inactive']);
+  });
+  const gradesWs = XLSX.utils.aoa_to_sheet(gradesData);
+  gradesWs['!cols'] = autoWidth(gradesData);
+  gradesWs['!freeze'] = { xSplit: 0, ySplit: 1 };
+  applyHeaderStyle(gradesWs, XLSX.utils.decode_range(gradesWs['!ref'] ?? 'A1'));
+  XLSX.utils.book_append_sheet(wb, gradesWs, 'Grades');
+
+  const desigHeaders = ['Designation', 'Status'];
+  const desigData: unknown[][] = [desigHeaders];
+  designations.forEach((row) => {
+    desigData.push([row.name, row.is_active ? 'Active' : 'Inactive']);
+  });
+  const desigWs = XLSX.utils.aoa_to_sheet(desigData);
+  desigWs['!cols'] = autoWidth(desigData);
+  desigWs['!freeze'] = { xSplit: 0, ySplit: 1 };
+  applyHeaderStyle(desigWs, XLSX.utils.decode_range(desigWs['!ref'] ?? 'A1'));
+  XLSX.utils.book_append_sheet(wb, desigWs, 'Designations');
+
+  const filename = `skillsync-settings-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  XLSX.writeFile(wb, filename);
+}
