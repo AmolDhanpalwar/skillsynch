@@ -166,24 +166,21 @@ function SkillFormInner() {
     if (!user) return;
 
     async function init() {
-      const [existingFormRes, managerRes] = await Promise.all([
-        supabase
-          .from('skill_forms')
-          .select('*')
-          .eq('employee_id', user!.id)
-          .order('updated_at', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        user!.manager_id
-          ? supabase
-              .from('users')
-              .select('full_name, email')
-              .eq('id', user!.manager_id)
-              .maybeSingle()
-          : Promise.resolve({ data: null }),
-      ]);
+      const existingFormRes = await supabase
+        .from('skill_forms')
+        .select('*')
+        .eq('employee_id', user!.id)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
       const existingForm = existingFormRes.data;
+
+      // Resolve manager from form's manager_id first, fall back to user's manager_id
+      const managerId = existingForm?.manager_id ?? user!.manager_id ?? null;
+      const managerRes = managerId
+        ? await supabase.from('users').select('full_name, email').eq('id', managerId).maybeSingle()
+        : { data: null };
       const manager = managerRes.data;
 
       const baseValues: Step1Input = {
