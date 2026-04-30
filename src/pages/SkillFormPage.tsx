@@ -139,7 +139,7 @@ function SkillFormInner() {
   const [step4, setStep4] = useState<Step4Values>(makeDefaultStep4);
 
   const isApproved = formStatus === 'approved';
-  const isLocked = isApproved;
+  const isLocked = isApproved || formStatus === 'pending_review';
 
   const form = useForm<Step1Input, unknown, Step1Values>({
     resolver: zodResolver(step1Schema),
@@ -166,35 +166,25 @@ function SkillFormInner() {
     if (!user) return;
 
     async function init() {
-      const existingFormRes = await supabase
-        .from('skill_forms')
-        .select('*')
-        .eq('employee_id', user!.id)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const [existingFormRes, managerRes] = await Promise.all([
+        supabase
+          .from('skill_forms')
+          .select('*')
+          .eq('employee_id', user!.id)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        user!.manager_id
+          ? supabase
+              .from('users')
+              .select('full_name, email')
+              .eq('id', user!.manager_id)
+              .maybeSingle()
+          : Promise.resolve({ data: null }),
+      ]);
 
       const existingForm = existingFormRes.data;
-
-      // Prefer manager name/email stored directly on the form.
-      // Fall back to looking up via manager_id (covers older records).
-      let resolvedManagerName = (existingForm?.manager_name as string | null) || '';
-      let resolvedManagerEmail = (existingForm?.manager_email as string | null) || '';
-
-      if ((!resolvedManagerName || !resolvedManagerEmail)) {
-        const managerId = existingForm?.manager_id ?? user!.manager_id ?? null;
-        if (managerId) {
-          const { data: mgr } = await supabase
-            .from('users')
-            .select('full_name, email')
-            .eq('id', managerId)
-            .maybeSingle();
-          if (mgr) {
-            resolvedManagerName = resolvedManagerName || mgr.full_name || '';
-            resolvedManagerEmail = resolvedManagerEmail || mgr.email || '';
-          }
-        }
-      }
+      const manager = managerRes.data;
 
       const baseValues: Step1Input = {
         full_name: user!.full_name || '',
@@ -206,8 +196,8 @@ function SkillFormInner() {
         total_exp: '',
         relevant_exp: '',
         haptiq_exp: '',
-        manager_name: resolvedManagerName,
-        manager_email: resolvedManagerEmail,
+        manager_name: manager?.full_name || '',
+        manager_email: manager?.email || '',
       };
 
       if (existingForm) {
@@ -357,7 +347,7 @@ function SkillFormInner() {
     const certList = step3.certifications.filter((c) => c.trim() !== '');
 
     // Resolve manager_id from the email entered in the form
-    let resolvedManagerId: string | null = null;
+    let resolvedManagerId: string | null = user.manager_id || null;
     if (values.manager_email?.trim()) {
       const { data: mgr } = await supabase
         .from('users')
@@ -366,14 +356,11 @@ function SkillFormInner() {
         .maybeSingle();
       if (mgr?.id) resolvedManagerId = mgr.id;
     }
-    if (!resolvedManagerId) resolvedManagerId = user.manager_id || null;
 
     const upsertPayload = {
       ...(formId ? { id: formId } : {}),
       employee_id: user.id,
       manager_id: resolvedManagerId,
-      manager_name: values.manager_name?.trim() || null,
-      manager_email: values.manager_email?.trim() || null,
       status: statusOverride ?? ('draft' as FormStatus),
       employee_name: values.full_name,
       employee_email: values.email,
@@ -582,10 +569,11 @@ function SkillFormInner() {
               !isApproved && (
                 <button
                   onClick={() => setShowConfirmModal(true)}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold font-heading transition-all active:scale-[0.98]"
+                  disabled={isLocked && !isApproved}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold font-heading transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <CheckCircle2 size={15} />
-                  {formStatus === 'pending_review' ? 'Resubmit for Review' : 'Submit for Manager Review'}
+                  Submit for Manager Review
                 </button>
               )
             ) : (
