@@ -405,6 +405,42 @@ export async function exportSkillsMatrix(): Promise<void> {
   XLSX.writeFile(wb, filename);
 }
 
+export async function exportSkillSettings(): Promise<void> {
+  const tables = [
+    { key: 'settings_certifications', sheet: 'Certifications' },
+    { key: 'settings_languages',      sheet: 'Languages' },
+    { key: 'settings_frameworks',     sheet: 'Frameworks' },
+    { key: 'settings_tools',          sheet: 'Tools' },
+    { key: 'settings_databases',      sheet: 'Databases' },
+  ] as const;
+
+  const results = await Promise.all(
+    tables.map(({ key }) =>
+      supabase.from(key).select('name, is_active').order('name')
+    )
+  );
+
+  const wb = XLSX.utils.book_new();
+  wb.Props = { Title: 'SkillSync Skill Settings', Author: 'SkillSync' };
+
+  tables.forEach(({ sheet }, i) => {
+    const rows = (results[i].data ?? []) as Array<{ name: string; is_active: boolean }>;
+    const headers = [sheet.slice(0, -1) === sheet ? sheet : sheet.replace(/s$/, ''), 'Status'];
+    const data: unknown[][] = [[sheet, 'Status']];
+    rows.forEach((row) => {
+      data.push([row.name, row.is_active ? 'Active' : 'Inactive']);
+    });
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    ws['!cols'] = autoWidth(data);
+    ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+    applyHeaderStyle(ws, XLSX.utils.decode_range(ws['!ref'] ?? 'A1'));
+    XLSX.utils.book_append_sheet(wb, ws, sheet);
+  });
+
+  const filename = `skillsync-skill-settings-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  XLSX.writeFile(wb, filename);
+}
+
 export async function exportEmpSettings(): Promise<void> {
   const [gradesRes, designationsRes] = await Promise.all([
     supabase.from('settings_grades').select('name, is_active').order('name'),

@@ -1,12 +1,18 @@
-import { useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { Trash2, Lock, Search, X, ChevronDown, Loader2 } from 'lucide-react';
-import type { SkillRow, SkillRating, Step2Values } from '../../types/form';
-import { SKILL_RATING_OPTIONS, makeSkillRow } from '../../types/form';
+import type { SkillRow, SkillRating, SkillRatingOption, Step2Values } from '../../types/form';
+import { makeSkillRow } from '../../types/form';
 import { supabase } from '../../lib/supabaseClient';
+import { useSkillRatings } from '../../lib/useSkillRatings';
+
+export interface Step2SkillsHandle {
+  validate: () => boolean;
+}
 
 interface Step2SkillsProps {
   values: Step2Values;
   onChange: (values: Step2Values) => void;
+  locked?: boolean;
 }
 
 // ─── Supabase fetch ──────────────────────────────────────────────────────────
@@ -28,10 +34,14 @@ function RatingSelect({
   value,
   onChange,
   locked,
+  error,
+  options,
 }: {
   value: SkillRating | null;
   onChange?: (v: SkillRating) => void;
   locked?: boolean;
+  error?: boolean;
+  options: SkillRatingOption[];
 }) {
   return (
     <div className="relative">
@@ -42,12 +52,14 @@ function RatingSelect({
         className={`w-full px-2.5 py-2 rounded-lg border text-xs font-body appearance-none pr-7 outline-none transition-colors
           ${locked
             ? `${LOCKED_CELL} border-gray-200`
-            : 'border-gray-200 bg-white text-gray-800 hover:border-primary-300 focus:border-primary-400 focus:ring-1 focus:ring-primary-100'
+            : error
+              ? 'border-red-400 bg-red-50 text-gray-800 focus:border-red-500 focus:ring-1 focus:ring-red-100'
+              : 'border-gray-200 bg-white text-gray-800 hover:border-primary-300 focus:border-primary-400 focus:ring-1 focus:ring-primary-100'
           }`}
       >
         <option value="" disabled>Select…</option>
-        {SKILL_RATING_OPTIONS.map((opt) => (
-          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        {options.map((opt) => (
+          <option key={opt.sort_order} value={opt.sort_order}>{opt.label}</option>
         ))}
       </select>
       {!locked && (
@@ -55,6 +67,9 @@ function RatingSelect({
       )}
       {locked && (
         <Lock size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" />
+      )}
+      {error && (
+        <p className="text-[10px] text-red-500 font-body mt-0.5">Required</p>
       )}
     </div>
   );
@@ -199,6 +214,8 @@ interface SkillTableProps {
   onChangeName: (id: string, name: string) => void;
   onChangeRating: (id: string, rating: SkillRating) => void;
   duplicateIds: Set<string>;
+  ratingErrorIds: Set<string>;
+  ratingOptions: SkillRatingOption[];
 }
 
 function SkillTable({
@@ -211,6 +228,8 @@ function SkillTable({
   onChangeName,
   onChangeRating,
   duplicateIds,
+  ratingErrorIds,
+  ratingOptions,
 }: SkillTableProps) {
   // Names used by other rows (for exclusion from picker)
   function otherNames(currentId: string) {
@@ -269,10 +288,12 @@ function SkillTable({
                   <RatingSelect
                     value={row.employee_rating}
                     onChange={(v) => onChangeRating(row.id, v)}
+                    error={ratingErrorIds.has(row.id)}
+                    options={ratingOptions}
                   />
                 </td>
                 <td className="px-4 py-2.5">
-                  <RatingSelect value={row.manager_rating} locked />
+                  <RatingSelect value={row.manager_rating} locked options={ratingOptions} />
                 </td>
                 <td className="px-4 py-2.5">
                   <LockedTextarea value={row.manager_comment} />
@@ -483,7 +504,7 @@ function getDuplicateIds(rows: SkillRow[]): Set<string> {
 
 // ─── Main component ──────────────────────────────────────────────────────────
 
-export default function Step2Skills({ values, onChange }: Step2SkillsProps) {
+const Step2Skills = forwardRef<Step2SkillsHandle, Step2SkillsProps>(function Step2Skills({ values, onChange }, ref) {
   const [languages, setLanguages] = useState<string[]>([]);
   const [frameworks, setFrameworks] = useState<string[]>([]);
   const [tools, setTools] = useState<string[]>([]);
@@ -492,6 +513,9 @@ export default function Step2Skills({ values, onChange }: Step2SkillsProps) {
   const [loadingFw, setLoadingFw] = useState(true);
   const [loadingTools, setLoadingTools] = useState(true);
   const [loadingDbs, setLoadingDbs] = useState(true);
+  const [ratingErrorLangs, setRatingErrorLangs] = useState<Set<string>>(new Set());
+  const [ratingErrorFws, setRatingErrorFws] = useState<Set<string>>(new Set());
+  const { ratings: ratingOptions } = useSkillRatings();
 
   useEffect(() => {
     fetchMasterList('settings_languages').then((d) => { setLanguages(d); setLoadingLang(false); });
@@ -499,6 +523,20 @@ export default function Step2Skills({ values, onChange }: Step2SkillsProps) {
     fetchMasterList('settings_tools').then((d) => { setTools(d); setLoadingTools(false); });
     fetchMasterList('settings_databases').then((d) => { setDatabases(d); setLoadingDbs(false); });
   }, []);
+
+  useImperativeHandle(ref, () => ({
+    validate() {
+      const langErrors = new Set(
+        values.languages.filter((r) => r.name.trim() !== '' && r.employee_rating === null).map((r) => r.id)
+      );
+      const fwErrors = new Set(
+        values.frameworks.filter((r) => r.name.trim() !== '' && r.employee_rating === null).map((r) => r.id)
+      );
+      setRatingErrorLangs(langErrors);
+      setRatingErrorFws(fwErrors);
+      return langErrors.size === 0 && fwErrors.size === 0;
+    },
+  }));
 
   const dupeLangs = getDuplicateIds(values.languages);
   const dupeFws = getDuplicateIds(values.frameworks);
@@ -531,8 +569,13 @@ export default function Step2Skills({ values, onChange }: Step2SkillsProps) {
   function changeRating(category: 'languages' | 'frameworks', id: string, rating: SkillRating) {
     const updater = (rows: SkillRow[]) =>
       rows.map((r) => (r.id === id ? { ...r, employee_rating: rating } : r));
-    if (category === 'languages') updateLanguages(updater);
-    else updateFrameworks(updater);
+    if (category === 'languages') {
+      updateLanguages(updater);
+      setRatingErrorLangs((prev) => { const s = new Set(prev); s.delete(id); return s; });
+    } else {
+      updateFrameworks(updater);
+      setRatingErrorFws((prev) => { const s = new Set(prev); s.delete(id); return s; });
+    }
   }
 
   return (
@@ -565,6 +608,8 @@ export default function Step2Skills({ values, onChange }: Step2SkillsProps) {
           onChangeName={(id, name) => changeName('languages', id, name)}
           onChangeRating={(id, rating) => changeRating('languages', id, rating)}
           duplicateIds={dupeLangs}
+          ratingErrorIds={ratingErrorLangs}
+          ratingOptions={ratingOptions}
         />
       </section>
 
@@ -586,6 +631,8 @@ export default function Step2Skills({ values, onChange }: Step2SkillsProps) {
           onChangeName={(id, name) => changeName('frameworks', id, name)}
           onChangeRating={(id, rating) => changeRating('frameworks', id, rating)}
           duplicateIds={dupeFws}
+          ratingErrorIds={ratingErrorFws}
+          ratingOptions={ratingOptions}
         />
       </section>
 
@@ -637,4 +684,6 @@ export default function Step2Skills({ values, onChange }: Step2SkillsProps) {
       </section>
     </div>
   );
-}
+});
+
+export default Step2Skills;

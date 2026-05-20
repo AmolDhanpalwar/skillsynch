@@ -24,6 +24,7 @@ import StatusBadge from '../components/form/StatusBadge';
 import Toast from '../components/form/Toast';
 import Step1Profile from './form/Step1Profile';
 import Step2SkillsManager from './form/Step2SkillsManager';
+import Step3AdditionalManager from './form/Step3AdditionalManager';
 import Step3CertificationsManager from './form/Step3CertificationsManager';
 import Step4PlansManager from './form/Step4PlansManager';
 import { supabase } from '../lib/supabaseClient';
@@ -36,12 +37,14 @@ import {
   SEED_LANGUAGES,
   SEED_FRAMEWORKS,
   makeSkillRow,
+  makeDefaultStepAdditional,
   makeDefaultStep3,
   makeDefaultStep4,
 } from '../types/form';
 import type {
   Step1Values,
   Step2Values,
+  StepAdditionalValues,
   Step3Values,
   Step4Values,
   SkillRow,
@@ -410,7 +413,7 @@ function ChangeManagerModal({ currentManagerName, employeeId, formId, onClose, o
 export default function ManagerReviewPage() {
   const { formId } = useParams<{ formId: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, refreshProfile } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [currentStep, setCurrentStep] = useState(1);
@@ -427,6 +430,7 @@ export default function ManagerReviewPage() {
   });
 
   const [step2, setStep2] = useState<Step2Values>(makeDefaultStep2);
+  const [stepAdditional, setStepAdditional] = useState<StepAdditionalValues>(makeDefaultStepAdditional);
   const [step3, setStep3] = useState<Step3Values>(makeDefaultStep3);
   const [step4, setStep4] = useState<Step4Values>(makeDefaultStep4);
 
@@ -514,6 +518,7 @@ export default function ManagerReviewPage() {
       if (items && items.length > 0) {
         const langs = items.filter((i) => i.category === 'language').map(toRow);
         const frams = items.filter((i) => i.category === 'framework').map(toRow);
+        const envs = items.filter((i) => i.category === 'environment').map(toRow);
         setStep2({
           languages: langs.length > 0 ? langs : SEED_LANGUAGES.map((n) => makeSkillRow(n, true)),
           frameworks: frams.length > 0 ? frams : SEED_FRAMEWORKS.map((n) => makeSkillRow(n, true)),
@@ -521,6 +526,10 @@ export default function ManagerReviewPage() {
           tools_manager_comment: sf.tools_manager_comment || '',
           databases: sf.databases || '',
           databases_manager_comment: sf.databases_manager_comment || '',
+        });
+        setStepAdditional({
+          environments: envs,
+          environments_manager_comment: (sf as Record<string, unknown>).environments_manager_comment as string || '',
         });
       } else {
         setStep2((prev) => ({
@@ -530,6 +539,10 @@ export default function ManagerReviewPage() {
           databases: sf.databases || '',
           databases_manager_comment: sf.databases_manager_comment || '',
         }));
+        setStepAdditional({
+          environments: [],
+          environments_manager_comment: (sf as Record<string, unknown>).environments_manager_comment as string || '',
+        });
       }
 
       const rawCerts = sf.certifications as string[] | null;
@@ -575,6 +588,15 @@ export default function ManagerReviewPage() {
         manager_comment: r.manager_comment,
         sort_order: i,
       })),
+      ...stepAdditional.environments.map((r, i) => ({
+        form_id: formId,
+        category: 'environment' as const,
+        name: r.name,
+        employee_rating: r.employee_rating,
+        manager_rating: r.manager_rating,
+        manager_comment: r.manager_comment,
+        sort_order: i,
+      })),
     ].filter((item) => item.name.trim() !== '');
 
     await supabase.from('skill_items').delete().eq('form_id', formId);
@@ -583,6 +605,7 @@ export default function ManagerReviewPage() {
     const patch: Record<string, unknown> = {
       tools_manager_comment: step2.tools_manager_comment,
       databases_manager_comment: step2.databases_manager_comment,
+      environments_manager_comment: stepAdditional.environments_manager_comment,
       upskilling_plan: step4.upskilling_plan,
       manager_expectation_plan: step4.manager_expectation_plan,
       updated_at: new Date().toISOString(),
@@ -740,12 +763,18 @@ export default function ManagerReviewPage() {
                 />
               )}
               {currentStep === 3 && (
+                <Step3AdditionalManager
+                  values={stepAdditional}
+                  onChange={isViewOnly ? () => {} : setStepAdditional}
+                />
+              )}
+              {currentStep === 4 && (
                 <Step3CertificationsManager
                   values={step3}
                   onChange={isViewOnly ? () => {} : setStep3}
                 />
               )}
-              {currentStep === 4 && (
+              {currentStep === 5 && (
                 <Step4PlansManager
                   values={step4}
                   onChange={isViewOnly ? () => {} : setStep4}
@@ -836,6 +865,7 @@ export default function ManagerReviewPage() {
             setFormManagerName(newName);
             setFormManagerId(newId);
             showToast(`Manager changed to ${newName}`);
+            refreshProfile();
           }}
 
         />

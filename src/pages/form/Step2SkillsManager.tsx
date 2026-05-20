@@ -1,6 +1,6 @@
 import { Lock } from 'lucide-react';
-import type { SkillRow, SkillRating, Step2Values } from '../../types/form';
-import { SKILL_RATING_OPTIONS } from '../../types/form';
+import type { SkillRow, SkillRating, SkillRatingOption, Step2Values } from '../../types/form';
+import { useSkillRatings } from '../../lib/useSkillRatings';
 
 interface Step2SkillsManagerProps {
   values: Step2Values;
@@ -13,10 +13,12 @@ function RatingSelect({
   value,
   onChange,
   locked,
+  options,
 }: {
   value: SkillRating | null;
   onChange?: (v: SkillRating) => void;
   locked?: boolean;
+  options: SkillRatingOption[];
 }) {
   return (
     <div className="relative">
@@ -31,8 +33,8 @@ function RatingSelect({
           }`}
       >
         <option value="" disabled>Select…</option>
-        {SKILL_RATING_OPTIONS.map((opt) => (
-          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        {options.map((opt) => (
+          <option key={opt.sort_order} value={opt.sort_order}>{opt.label}</option>
         ))}
       </select>
       {locked && (
@@ -80,9 +82,10 @@ interface SkillTableManagerProps {
   rows: SkillRow[];
   onChangeManagerRating: (id: string, rating: SkillRating) => void;
   onChangeManagerComment: (id: string, comment: string) => void;
+  ratingOptions: SkillRatingOption[];
 }
 
-function SkillTableManager({ rows, onChangeManagerRating, onChangeManagerComment }: SkillTableManagerProps) {
+function SkillTableManager({ rows, onChangeManagerRating, onChangeManagerComment, ratingOptions }: SkillTableManagerProps) {
   return (
     <div className="overflow-x-auto rounded-xl border border-gray-200 shadow-sm">
       <table className="w-full min-w-[620px] text-left border-collapse">
@@ -117,12 +120,13 @@ function SkillTableManager({ rows, onChangeManagerRating, onChangeManagerComment
                 <span className="text-sm font-body text-gray-800">{row.name || '—'}</span>
               </td>
               <td className="px-4 py-2.5">
-                <RatingSelect value={row.employee_rating} locked />
+                <RatingSelect value={row.employee_rating} locked options={ratingOptions} />
               </td>
               <td className="px-4 py-2.5">
                 <RatingSelect
                   value={row.manager_rating}
                   onChange={(v) => onChangeManagerRating(row.id, v)}
+                  options={ratingOptions}
                 />
               </td>
               <td className="px-4 py-2.5">
@@ -140,6 +144,8 @@ function SkillTableManager({ rows, onChangeManagerRating, onChangeManagerComment
 }
 
 export default function Step2SkillsManager({ values, onChange }: Step2SkillsManagerProps) {
+  const { ratings: ratingOptions } = useSkillRatings();
+
   function updateRow(
     category: 'languages' | 'frameworks',
     id: string,
@@ -171,6 +177,7 @@ export default function Step2SkillsManager({ values, onChange }: Step2SkillsMana
           rows={values.languages}
           onChangeManagerRating={(id, v) => updateRow('languages', id, { manager_rating: v })}
           onChangeManagerComment={(id, v) => updateRow('languages', id, { manager_comment: v })}
+          ratingOptions={ratingOptions}
         />
       </section>
 
@@ -184,6 +191,7 @@ export default function Step2SkillsManager({ values, onChange }: Step2SkillsMana
           rows={values.frameworks}
           onChangeManagerRating={(id, v) => updateRow('frameworks', id, { manager_rating: v })}
           onChangeManagerComment={(id, v) => updateRow('frameworks', id, { manager_comment: v })}
+          ratingOptions={ratingOptions}
         />
       </section>
 

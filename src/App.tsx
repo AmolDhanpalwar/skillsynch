@@ -33,6 +33,7 @@ function RoleRoot() {
   return <Navigate to={map[user.role] ?? '/dashboard'} replace />;
 }
 
+
 function PageTransition({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const ref = useRef<HTMLDivElement>(null);
@@ -62,7 +63,7 @@ function AppRoutes() {
     <PageTransition>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/" element={<RoleRoot />} />
+        <Route path="/" element={<Navigate to="/login" replace />} />
         <Route
           path="/dashboard"
           element={

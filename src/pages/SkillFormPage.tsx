@@ -2,13 +2,14 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useNavigate } from 'react-router-dom';
-import { Save, ArrowRight, ArrowLeft, Loader2, CheckCircle2, X, ShieldCheck } from 'lucide-react';
+import { Save, ArrowRight, ArrowLeft, Loader2, CheckCircle2, X, ShieldCheck, RotateCcw } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
 import StepIndicator from '../components/form/StepIndicator';
 import StatusBadge from '../components/form/StatusBadge';
 import Toast from '../components/form/Toast';
 import Step1Profile from './form/Step1Profile';
-import Step2Skills from './form/Step2Skills';
+import Step2Skills, { type Step2SkillsHandle } from './form/Step2Skills';
+import Step3Additional, { type Step3AdditionalHandle } from './form/Step3Additional';
 import Step3Certifications from './form/Step3Certifications';
 import Step4Plans from './form/Step4Plans';
 import { FormProvider, useFormContext } from '../context/FormContext';
@@ -21,6 +22,7 @@ import {
   SEED_LANGUAGES,
   SEED_FRAMEWORKS,
   makeSkillRow,
+  makeDefaultStepAdditional,
   makeDefaultStep3,
   makeDefaultStep4,
 } from '../types/form';
@@ -28,6 +30,7 @@ import type {
   Step1Values,
   Step1Input,
   Step2Values,
+  StepAdditionalValues,
   Step3Values,
   Step4Values,
   SkillRow,
@@ -119,8 +122,25 @@ function ApprovedBanner() {
   );
 }
 
+function ReturnedBanner() {
+  return (
+    <div className="flex items-center gap-3 px-5 py-3.5 bg-orange-50 border-b border-orange-100">
+      <RotateCcw size={18} className="text-orange-500 shrink-0" />
+      <div>
+        <p className="text-sm font-semibold font-heading text-orange-700">Returned for Revision</p>
+        <p className="text-xs text-orange-600 font-body">
+          Your manager has returned this form. Please review, make corrections, and resubmit.
+        </p>
+      </div>
+      <span className="ml-auto px-3 py-1 rounded-full border-2 border-orange-300 text-orange-600 text-[11px] font-bold font-heading tracking-widest uppercase">
+        REVISION
+      </span>
+    </div>
+  );
+}
+
 function SkillFormInner() {
-  const { user } = useAuth();
+  const { user, refreshProfile } = useAuth();
   const navigate = useNavigate();
   const { currentStep, setCurrentStep, formId, setFormId, formStatus, setFormStatus } =
     useFormContext();
@@ -133,12 +153,20 @@ function SkillFormInner() {
 
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isInitializing = useRef(true);
+  const step2Ref = useRef<Step2SkillsHandle>(null);
+  const step3AdditionalRef = useRef<Step3AdditionalHandle>(null);
 
   const [step2, setStep2] = useState<Step2Values>(makeDefaultStep2);
+  const [stepAdditional, setStepAdditional] = useState<StepAdditionalValues>(makeDefaultStepAdditional);
+  const stepAdditionalRef = useRef<StepAdditionalValues>(makeDefaultStepAdditional());
   const [step3, setStep3] = useState<Step3Values>(makeDefaultStep3);
   const [step4, setStep4] = useState<Step4Values>(makeDefaultStep4);
 
+  // Keep ref in sync so saveSkillItems always reads the latest value
+  stepAdditionalRef.current = stepAdditional;
+
   const isApproved = formStatus === 'approved';
+  const isReturned = formStatus === 'returned';
   const isLocked = isApproved || formStatus === 'pending_review';
 
   const form = useForm<Step1Input, unknown, Step1Values>({
@@ -166,24 +194,25 @@ function SkillFormInner() {
     if (!user) return;
 
     async function init() {
-      const [existingFormRes, managerRes] = await Promise.all([
-        supabase
-          .from('skill_forms')
-          .select('*')
-          .eq('employee_id', user!.id)
-          .order('updated_at', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        user!.manager_id
-          ? supabase
-              .from('users')
-              .select('full_name, email')
-              .eq('id', user!.manager_id)
-              .maybeSingle()
-          : Promise.resolve({ data: null }),
-      ]);
+      const existingFormRes = await supabase
+        .from('skill_forms')
+        .select('*')
+        .eq('employee_id', user!.id)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
       const existingForm = existingFormRes.data;
+
+      // Use skill_forms.manager_id as source of truth; fall back to users.manager_id
+      const effectiveManagerId = existingForm?.manager_id ?? user!.manager_id ?? null;
+      const managerRes = effectiveManagerId
+        ? await supabase
+            .from('users')
+            .select('full_name, email')
+            .eq('id', effectiveManagerId)
+            .maybeSingle()
+        : { data: null };
       const manager = managerRes.data;
 
       const baseValues: Step1Input = {
@@ -225,19 +254,21 @@ function SkillFormInner() {
           .eq('form_id', existingForm.id)
           .order('sort_order');
 
+        const toRow = (item: Record<string, unknown>): SkillRow => ({
+          id: item.id as string,
+          name: item.name as string,
+          employee_rating: item.employee_rating as SkillRating | null,
+          manager_rating: item.manager_rating as SkillRating | null,
+          manager_comment: (item.manager_comment as string) || '',
+          is_seed:
+            SEED_LANGUAGES.includes(item.name as string) ||
+            SEED_FRAMEWORKS.includes(item.name as string),
+        });
+
         if (items && items.length > 0) {
-          const toRow = (item: Record<string, unknown>): SkillRow => ({
-            id: item.id as string,
-            name: item.name as string,
-            employee_rating: item.employee_rating as SkillRating | null,
-            manager_rating: item.manager_rating as SkillRating | null,
-            manager_comment: (item.manager_comment as string) || '',
-            is_seed:
-              SEED_LANGUAGES.includes(item.name as string) ||
-              SEED_FRAMEWORKS.includes(item.name as string),
-          });
           const langs = items.filter((i) => i.category === 'language').map(toRow);
           const frams = items.filter((i) => i.category === 'framework').map(toRow);
+          const envs = items.filter((i) => i.category === 'environment').map(toRow);
           setStep2({
             languages: langs.length > 0 ? langs : SEED_LANGUAGES.map((n) => makeSkillRow(n, true)),
             frameworks: frams.length > 0 ? frams : SEED_FRAMEWORKS.map((n) => makeSkillRow(n, true)),
@@ -245,6 +276,10 @@ function SkillFormInner() {
             tools_manager_comment: existingForm.tools_manager_comment || '',
             databases: existingForm.databases || '',
             databases_manager_comment: existingForm.databases_manager_comment || '',
+          });
+          setStepAdditional({
+            environments: envs,
+            environments_manager_comment: (existingForm as Record<string, unknown>).environments_manager_comment as string || '',
           });
         } else {
           setStep2((prev) => ({
@@ -254,6 +289,10 @@ function SkillFormInner() {
             databases: existingForm.databases || '',
             databases_manager_comment: existingForm.databases_manager_comment || '',
           }));
+          setStepAdditional({
+            environments: [],
+            environments_manager_comment: (existingForm as Record<string, unknown>).environments_manager_comment as string || '',
+          });
         }
 
         const rawCerts = existingForm.certifications as string[] | null;
@@ -333,6 +372,15 @@ function SkillFormInner() {
         manager_comment: r.manager_comment,
         sort_order: i,
       })),
+      ...stepAdditionalRef.current.environments.map((r, i) => ({
+        form_id: fid,
+        category: 'environment' as const,
+        name: r.name,
+        employee_rating: r.employee_rating,
+        manager_rating: r.manager_rating,
+        manager_comment: r.manager_comment,
+        sort_order: i,
+      })),
     ].filter((item) => item.name.trim() !== '');
 
     await supabase.from('skill_items').delete().eq('form_id', fid);
@@ -375,6 +423,7 @@ function SkillFormInner() {
       tools_manager_comment: step2.tools_manager_comment,
       databases: step2.databases,
       databases_manager_comment: step2.databases_manager_comment,
+      environments_manager_comment: stepAdditionalRef.current.environments_manager_comment,
       certifications: certList,
       upskilling_plan: step4.upskilling_plan,
       manager_expectation_plan: step4.manager_expectation_plan,
@@ -399,6 +448,7 @@ function SkillFormInner() {
       manager_id: resolvedManagerId,
     };
     await supabase.from('users').update(userUpdate).eq('id', user.id);
+    await refreshProfile();
 
     const savedId = data?.id ?? formId;
     if (data?.id) setFormId(data.id);
@@ -427,6 +477,14 @@ function SkillFormInner() {
       const valid = await trigger();
       if (!valid) return;
     }
+    if (currentStep === 2 && !isLocked) {
+      const valid = step2Ref.current?.validate() ?? true;
+      if (!valid) return;
+    }
+    if (currentStep === 3 && !isLocked) {
+      const valid = step3AdditionalRef.current?.validate() ?? true;
+      if (!valid) return;
+    }
     if (!isLocked) await handleSaveDraft();
     setCurrentStep(currentStep + 1);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -449,9 +507,17 @@ function SkillFormInner() {
 
     setFormStatus('pending_review');
 
-    if (user.manager_id) {
+    // Read manager_id from the saved form (authoritative) rather than user profile
+    const { data: savedForm } = await supabase
+      .from('skill_forms')
+      .select('manager_id')
+      .eq('id', savedId)
+      .maybeSingle();
+    const notifyManagerId = savedForm?.manager_id ?? user.manager_id ?? null;
+
+    if (notifyManagerId) {
       await supabase.from('notifications').insert({
-        user_id: user.manager_id,
+        user_id: notifyManagerId,
         type: 'form_submitted',
         message: `${user.full_name || user.email} submitted their Skill Profile.`,
         form_id: savedId,
@@ -470,8 +536,10 @@ function SkillFormInner() {
     currentStep === 1
       ? 'Next: Skills'
       : currentStep === 2
-      ? 'Next: Certifications'
+      ? 'Next: Additional Skills'
       : currentStep === 3
+      ? 'Next: Certifications'
+      : currentStep === 4
       ? 'Next: Plans'
       : '';
 
@@ -490,6 +558,7 @@ function SkillFormInner() {
 
         <div className="bg-white rounded-2xl shadow-sm shadow-gray-200/80 border border-gray-100 overflow-hidden">
           {isApproved && <ApprovedBanner />}
+          {isReturned && <ReturnedBanner />}
 
           <div className="px-6 pt-6 pb-5 border-b border-gray-100">
             <StepIndicator currentStep={currentStep} />
@@ -514,16 +583,24 @@ function SkillFormInner() {
           <div className="px-6 py-7">
             {currentStep === 1 && <Step1Profile form={form} />}
             {currentStep === 2 && (
-              <Step2Skills values={step2} onChange={isLocked ? () => {} : setStep2} />
+              <Step2Skills ref={step2Ref} values={step2} onChange={isLocked ? () => {} : setStep2} />
             )}
             {currentStep === 3 && (
+              <Step3Additional
+                ref={step3AdditionalRef}
+                values={stepAdditional}
+                onChange={isLocked ? () => {} : setStepAdditional}
+                locked={isLocked}
+              />
+            )}
+            {currentStep === 4 && (
               <Step3Certifications
                 values={step3}
                 onChange={isLocked ? () => {} : setStep3}
                 locked={isLocked}
               />
             )}
-            {currentStep === 4 && (
+            {currentStep === 5 && (
               <Step4Plans
                 values={step4}
                 onChange={isLocked ? () => {} : setStep4}
@@ -566,14 +643,13 @@ function SkillFormInner() {
             </div>
 
             {isLastStep ? (
-              !isApproved && (
+              !isApproved && !isLocked && (
                 <button
                   onClick={() => setShowConfirmModal(true)}
-                  disabled={isLocked && !isApproved}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold font-heading transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold font-heading transition-all active:scale-[0.98]"
                 >
                   <CheckCircle2 size={15} />
-                  Submit for Manager Review
+                  {isReturned ? 'Resubmit for Review' : 'Submit for Manager Review'}
                 </button>
               )
             ) : (

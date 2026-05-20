@@ -5,6 +5,8 @@ import {
   Layers,
   Wrench,
   Database,
+  Server,
+  Star,
   Plus,
   Search,
   ToggleLeft,
@@ -14,26 +16,31 @@ import {
   X,
   AlertCircle,
   ChevronDown,
+  Download,
+  Loader2,
 } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
 import { Skeleton } from '../components/ui/Skeleton';
 import { supabase } from '../lib/supabaseClient';
+import { exportSkillSettings } from '../lib/exportService';
 
 type TableName =
   | 'settings_certifications'
   | 'settings_languages'
   | 'settings_frameworks'
   | 'settings_tools'
-  | 'settings_databases';
+  | 'settings_databases'
+  | 'settings_environments';
 
 interface SettingItem {
   id: string;
   name: string;
   is_active: boolean;
+  is_haptiq_demand: boolean;
   created_at: string;
 }
 
-type TabId = 'certifications' | 'languages' | 'frameworks' | 'tools' | 'databases';
+type TabId = 'certifications' | 'languages' | 'frameworks' | 'tools' | 'databases' | 'environments' | 'ratings';
 
 interface TabConfig {
   id: TabId;
@@ -85,6 +92,14 @@ const TABS: TabConfig[] = [
     description: 'Manage database technologies available in the skill form.',
     placeholder: 'e.g. PostgreSQL',
   },
+  {
+    id: 'environments',
+    label: 'Additional Skills',
+    icon: Server,
+    table: 'settings_environments',
+    description: 'Manage environment, infrastructure, OS, and management system options for the Additional Skills step.',
+    placeholder: 'e.g. Kubernetes',
+  },
 ];
 
 type FilterStatus = 'all' | 'active' | 'inactive';
@@ -99,7 +114,7 @@ function useSettingsData(table: TableName) {
     setError(null);
     const { data, error: err } = await supabase
       .from(table)
-      .select('id, name, is_active, created_at')
+      .select('id, name, is_active, is_haptiq_demand, created_at')
       .order('name', { ascending: true });
     if (err) setError(err.message);
     else setItems((data as SettingItem[]) ?? []);
@@ -112,11 +127,11 @@ function useSettingsData(table: TableName) {
 }
 
 interface SettingsPanelProps {
-  tab: TabConfig;
+  tab: TabConfig & { table: TableName; placeholder: string };
 }
 
 function SettingsPanel({ tab }: SettingsPanelProps) {
-  const { items, loading, error, refetch, setItems } = useSettingsData(tab.table);
+  const { items, loading, error, setItems } = useSettingsData(tab.table);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterStatus>('all');
   const [newName, setNewName] = useState('');
@@ -199,6 +214,20 @@ function SettingsPanel({ tab }: SettingsPanelProps) {
     setSavingId(null);
   }
 
+  async function handleDemandToggle(item: SettingItem) {
+    setSavingId(item.id);
+    const { error: err } = await supabase
+      .from(tab.table)
+      .update({ is_haptiq_demand: !item.is_haptiq_demand })
+      .eq('id', item.id);
+    if (!err) {
+      setItems((prev) =>
+        prev.map((i) => (i.id === item.id ? { ...i, is_haptiq_demand: !i.is_haptiq_demand } : i))
+      );
+    }
+    setSavingId(null);
+  }
+
   function startEdit(item: SettingItem) {
     setEditId(item.id);
     setEditName(item.name);
@@ -265,10 +294,7 @@ function SettingsPanel({ tab }: SettingsPanelProps) {
                 className="w-full pl-8 pr-3 py-2 rounded-xl border border-gray-200 text-sm font-body text-gray-700 placeholder-gray-400 focus:outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-100 transition-colors"
               />
               {search && (
-                <button
-                  onClick={() => setSearch('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
+                <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                   <X size={13} />
                 </button>
               )}
@@ -303,6 +329,8 @@ function SettingsPanel({ tab }: SettingsPanelProps) {
               <span className="text-emerald-600 font-semibold">{activeCount} active</span>
               <span>·</span>
               <span className="text-gray-400">{inactiveCount} inactive</span>
+              <span>·</span>
+              <span className="text-sky-600 font-semibold">{items.filter((i) => i.is_haptiq_demand).length} in demand</span>
             </div>
           </div>
         </div>
@@ -335,11 +363,23 @@ function SettingsPanel({ tab }: SettingsPanelProps) {
           )}
         </div>
 
+        {/* Column header */}
+        {!loading && !error && filtered.length > 0 && (
+          <div className="flex items-center gap-3 px-5 py-2 bg-gray-50 border-b border-gray-100">
+            <span className="flex-1 text-[11px] font-bold font-heading uppercase tracking-wider text-gray-400">Name</span>
+            <span className="w-24 text-center text-[11px] font-bold font-heading uppercase tracking-wider text-sky-500 shrink-0">Haptiq Demand</span>
+            <span className="w-16 text-center text-[11px] font-bold font-heading uppercase tracking-wider text-gray-400 shrink-0">Status</span>
+            <span className="w-6 shrink-0" />
+            <span className="w-20 shrink-0" />
+          </div>
+        )}
+
         {loading ? (
           <div className="divide-y divide-gray-50">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="flex items-center gap-3 px-5 py-3.5">
                 <Skeleton className="h-4 flex-1 max-w-xs" />
+                <Skeleton className="h-5 w-5 rounded mx-auto" />
                 <Skeleton className="h-6 w-14 rounded-full" />
                 <Skeleton className="h-7 w-7 rounded-lg" />
                 <Skeleton className="h-7 w-16 rounded-lg" />
@@ -363,7 +403,6 @@ function SettingsPanel({ tab }: SettingsPanelProps) {
             {filtered.map((item) => {
               const isEditing = editId === item.id;
               const isSaving = savingId === item.id;
-
               return (
                 <div
                   key={item.id}
@@ -392,65 +431,55 @@ function SettingsPanel({ tab }: SettingsPanelProps) {
                           </p>
                         )}
                       </div>
+                      <span className="w-24 shrink-0" />
                       <button
                         onClick={() => handleSaveEdit(item)}
                         disabled={isSaving}
                         className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white text-xs font-semibold font-heading transition-colors shrink-0"
                       >
-                        <Check size={12} />
-                        Save
+                        <Check size={12} />Save
                       </button>
                       <button
                         onClick={cancelEdit}
                         className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 text-xs font-semibold font-heading transition-colors shrink-0"
                       >
-                        <X size={12} />
-                        Cancel
+                        <X size={12} />Cancel
                       </button>
                     </>
                   ) : (
                     <>
-                      <span
-                        className={`flex-1 min-w-0 text-sm font-body truncate ${
-                          item.is_active ? 'text-gray-800' : 'text-gray-400 line-through'
-                        }`}
-                      >
+                      <span className={`flex-1 min-w-0 text-sm font-body truncate ${item.is_active ? 'text-gray-800' : 'text-gray-400 line-through'}`}>
                         {item.name}
                       </span>
 
-                      <span
-                        className={`shrink-0 text-[11px] font-semibold font-heading px-2.5 py-1 rounded-full border ${
-                          item.is_active
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                            : 'bg-gray-100 text-gray-400 border-gray-200'
-                        }`}
-                      >
+                      {/* HaptiqDemand checkbox — column-aligned */}
+                      <div className="w-24 flex justify-center shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={item.is_haptiq_demand}
+                          onChange={() => handleDemandToggle(item)}
+                          disabled={isSaving}
+                          title="Mark as Haptiq Demand"
+                          className="w-4 h-4 rounded border-gray-300 cursor-pointer accent-sky-500 disabled:opacity-50"
+                        />
+                      </div>
+
+                      <span className={`w-16 text-center shrink-0 text-[11px] font-semibold font-heading px-2.5 py-1 rounded-full border ${
+                        item.is_active ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-400 border-gray-200'
+                      }`}>
                         {item.is_active ? 'Active' : 'Inactive'}
                       </span>
-
-                      <button
-                        onClick={() => startEdit(item)}
-                        className="p-1.5 rounded-lg text-gray-400 hover:text-primary-500 hover:bg-primary-50 transition-colors shrink-0"
-                        title="Edit name"
-                      >
+                      <button onClick={() => startEdit(item)} className="w-6 flex justify-center p-1.5 rounded-lg text-gray-400 hover:text-primary-500 hover:bg-primary-50 transition-colors shrink-0" title="Edit name">
                         <Pencil size={14} />
                       </button>
-
                       <button
                         onClick={() => handleToggle(item)}
                         disabled={isSaving}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold font-heading border transition-colors shrink-0 disabled:opacity-50 ${
-                          item.is_active
-                            ? 'border-orange-200 text-orange-600 hover:bg-orange-50'
-                            : 'border-emerald-200 text-emerald-600 hover:bg-emerald-50'
+                        className={`w-20 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold font-heading border transition-colors shrink-0 disabled:opacity-50 ${
+                          item.is_active ? 'border-orange-200 text-orange-600 hover:bg-orange-50' : 'border-emerald-200 text-emerald-600 hover:bg-emerald-50'
                         }`}
-                        title={item.is_active ? 'Deactivate' : 'Activate'}
                       >
-                        {item.is_active ? (
-                          <><ToggleRight size={13} /> Deactivate</>
-                        ) : (
-                          <><ToggleLeft size={13} /> Activate</>
-                        )}
+                        {item.is_active ? <><ToggleRight size={13} />Deactivate</> : <><ToggleLeft size={13} />Activate</>}
                       </button>
                     </>
                   )}
@@ -464,42 +493,349 @@ function SettingsPanel({ tab }: SettingsPanelProps) {
   );
 }
 
+// ─── Skill Ratings Panel ──────────────────────────────────────────────────────
+
+interface RatingItem {
+  id: string;
+  sort_order: number;
+  label: string;
+  is_active: boolean;
+}
+
+function SkillRatingsPanel() {
+  const [items, setItems] = useState<RatingItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editLabel, setEditLabel] = useState('');
+  const [editError, setEditError] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [newLabel, setNewLabel] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const editInputRef = useRef<HTMLInputElement>(null);
+  const addInputRef = useRef<HTMLInputElement>(null);
+
+  async function fetchItems() {
+    setLoading(true);
+    const { data } = await supabase
+      .from('settings_skill_ratings')
+      .select('id, sort_order, label, is_active')
+      .order('sort_order');
+    setItems((data as RatingItem[]) ?? []);
+    setLoading(false);
+  }
+
+  useEffect(() => { fetchItems(); }, []);
+
+  function startEdit(item: RatingItem) {
+    setEditId(item.id);
+    setEditLabel(item.label);
+    setEditError(null);
+    setTimeout(() => editInputRef.current?.focus(), 50);
+  }
+
+  function cancelEdit() {
+    setEditId(null);
+    setEditLabel('');
+    setEditError(null);
+  }
+
+  async function handleSaveEdit(item: RatingItem) {
+    const trimmed = editLabel.trim();
+    if (!trimmed) { setEditError('Label is required'); return; }
+    if (items.some((i) => i.id !== item.id && i.label.toLowerCase() === trimmed.toLowerCase())) {
+      setEditError('Label already exists'); return;
+    }
+    setSavingId(item.id);
+    const { error } = await supabase.from('settings_skill_ratings').update({ label: trimmed }).eq('id', item.id);
+    if (error) { setEditError(error.message); } else {
+      setItems((prev) => prev.map((i) => i.id === item.id ? { ...i, label: trimmed } : i));
+      cancelEdit();
+    }
+    setSavingId(null);
+  }
+
+  async function handleToggle(item: RatingItem) {
+    setSavingId(item.id);
+    const { error } = await supabase.from('settings_skill_ratings').update({ is_active: !item.is_active }).eq('id', item.id);
+    if (!error) setItems((prev) => prev.map((i) => i.id === item.id ? { ...i, is_active: !item.is_active } : i));
+    setSavingId(null);
+  }
+
+  async function handleAdd() {
+    const trimmed = newLabel.trim();
+    if (!trimmed) { setAddError('Label is required'); return; }
+    if (items.some((i) => i.label.toLowerCase() === trimmed.toLowerCase())) {
+      setAddError('Label already exists'); return;
+    }
+    setAdding(true);
+    const nextOrder = items.length > 0 ? Math.max(...items.map((i) => i.sort_order)) + 1 : 1;
+    const { data, error } = await supabase
+      .from('settings_skill_ratings')
+      .insert({ sort_order: nextOrder, label: trimmed, is_active: true })
+      .select('id, sort_order, label, is_active')
+      .single();
+    if (error) { setAddError(error.message); } else {
+      setItems((prev) => [...prev, data as RatingItem]);
+      setNewLabel('');
+      setAddError(null);
+    }
+    setAdding(false);
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center">
+            <Star size={15} className="text-amber-600" />
+          </div>
+          <div>
+            <h2 className="font-heading font-semibold text-sm text-gray-800">Self-Rating Scale</h2>
+            <p className="text-xs text-gray-400 font-body mt-0.5">
+              Manage the rating levels shown to employees in the Self-Rating dropdown across Steps 2 &amp; 3.
+            </p>
+          </div>
+        </div>
+        <div className="mt-3 flex items-center gap-3 text-xs font-body text-gray-400">
+          <span className="font-semibold text-emerald-600">{items.filter((i) => i.is_active).length} active</span>
+          <span>·</span>
+          <span>{items.filter((i) => !i.is_active).length} inactive</span>
+        </div>
+      </div>
+
+      {/* Add new rating */}
+      <div className="px-6 py-4 border-b border-gray-100 bg-amber-50/30">
+        <p className="text-[11px] font-heading font-semibold text-gray-500 uppercase tracking-wide mb-2">Add New Rating Level</p>
+        <div className="flex items-start gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="w-7 h-7 rounded-lg bg-amber-100 text-amber-700 text-xs font-bold font-heading flex items-center justify-center shrink-0">
+                {items.length > 0 ? Math.max(...items.map((i) => i.sort_order)) + 1 : 1}
+              </span>
+              <input
+                ref={addInputRef}
+                type="text"
+                value={newLabel}
+                onChange={(e) => { setNewLabel(e.target.value); setAddError(null); }}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); }}
+                placeholder="e.g. 6 — Advanced Expert"
+                className={`flex-1 px-3 py-2 rounded-lg border text-sm font-body text-gray-700 outline-none transition-colors
+                  ${addError ? 'border-red-300 bg-red-50 focus:ring-red-100' : 'border-gray-200 bg-white focus:border-primary-400 focus:ring-1 focus:ring-primary-100'}`}
+              />
+            </div>
+            {addError && (
+              <p className="flex items-center gap-1 text-[11px] text-red-500 font-body mt-1.5 ml-9">
+                <AlertCircle size={10} />{addError}
+              </p>
+            )}
+          </div>
+          <button
+            onClick={handleAdd}
+            disabled={adding || !newLabel.trim()}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary-500 hover:bg-primary-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold font-heading transition-colors shrink-0"
+          >
+            {adding ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
+            Add
+          </button>
+        </div>
+      </div>
+
+      <div className="divide-y divide-gray-100">
+        {loading ? (
+          Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="px-6 py-3 flex items-center gap-3">
+              <Skeleton className="w-8 h-5 rounded" />
+              <Skeleton className="flex-1 h-5 rounded" />
+              <Skeleton className="w-20 h-7 rounded-lg" />
+            </div>
+          ))
+        ) : (
+          items.map((item) => {
+            const isEditing = editId === item.id;
+            const isSaving = savingId === item.id;
+            return (
+              <div key={item.id} className={`px-6 py-3 flex items-center gap-3 transition-colors ${isEditing ? 'bg-primary-50/40' : 'hover:bg-gray-50/60'}`}>
+                <span className="w-7 h-7 rounded-lg bg-gray-100 text-gray-500 text-xs font-bold font-heading flex items-center justify-center shrink-0">
+                  {item.sort_order}
+                </span>
+                {isEditing ? (
+                  <>
+                    <div className="flex-1 min-w-0">
+                      <input
+                        ref={editInputRef}
+                        type="text"
+                        value={editLabel}
+                        onChange={(e) => { setEditLabel(e.target.value); setEditError(null); }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleSaveEdit(item);
+                          if (e.key === 'Escape') cancelEdit();
+                        }}
+                        className="w-full px-3 py-1.5 rounded-lg border border-primary-300 text-sm font-body text-gray-700 focus:outline-none focus:ring-1 focus:ring-primary-100 transition-colors"
+                      />
+                      {editError && (
+                        <p className="flex items-center gap-1 text-[11px] text-red-500 font-body mt-1">
+                          <AlertCircle size={10} />{editError}
+                        </p>
+                      )}
+                    </div>
+                    <button onClick={() => handleSaveEdit(item)} disabled={isSaving} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white text-xs font-semibold font-heading transition-colors shrink-0">
+                      <Check size={12} />Save
+                    </button>
+                    <button onClick={cancelEdit} className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 text-xs font-semibold font-heading transition-colors shrink-0">
+                      <X size={12} />Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className={`flex-1 min-w-0 text-sm font-body truncate ${item.is_active ? 'text-gray-800' : 'text-gray-400 line-through'}`}>
+                      {item.label}
+                    </span>
+                    <span className={`shrink-0 text-[11px] font-semibold font-heading px-2.5 py-1 rounded-full border ${item.is_active ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-400 border-gray-200'}`}>
+                      {item.is_active ? 'Active' : 'Inactive'}
+                    </span>
+                    <button onClick={() => startEdit(item)} className="p-1.5 rounded-lg text-gray-400 hover:text-primary-500 hover:bg-primary-50 transition-colors shrink-0" title="Edit label">
+                      <Pencil size={14} />
+                    </button>
+                    <button onClick={() => handleToggle(item)} disabled={isSaving} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold font-heading border transition-colors shrink-0 disabled:opacity-50 ${item.is_active ? 'border-orange-200 text-orange-600 hover:bg-orange-50' : 'border-emerald-200 text-emerald-600 hover:bg-emerald-50'}`}>
+                      {item.is_active ? <><ToggleRight size={13} />Deactivate</> : <><ToggleLeft size={13} />Activate</>}
+                    </button>
+                  </>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Nav items including ratings ─────────────────────────────────────────────
+
+type AnyTabId = TabId;
+
+interface NavEntry {
+  id: AnyTabId;
+  label: string;
+  icon: React.ElementType;
+  section: string;
+}
+
+const NAV_ENTRIES: NavEntry[] = [
+  { id: 'certifications', label: 'Certifications',   icon: Award,     section: 'Skill Masters' },
+  { id: 'languages',      label: 'Languages',         icon: Code2,     section: 'Skill Masters' },
+  { id: 'frameworks',     label: 'Frameworks',        icon: Layers,    section: 'Skill Masters' },
+  { id: 'tools',          label: 'Tools',             icon: Wrench,    section: 'Skill Masters' },
+  { id: 'databases',      label: 'Databases',         icon: Database,  section: 'Skill Masters' },
+  { id: 'environments',   label: 'Additional Skills', icon: Server,    section: 'Skill Masters' },
+  { id: 'ratings',        label: 'Self-Rating Scale', icon: Star,      section: 'Assessment' },
+];
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<TabId>('certifications');
-  const currentTab = TABS.find((t) => t.id === activeTab)!;
+  const [activeTab, setActiveTab] = useState<AnyTabId>('certifications');
+  const [exporting, setExporting] = useState(false);
+
+  const currentTab = TABS.find((t) => t.id === activeTab);
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      await exportSkillSettings();
+    } catch (err) {
+      console.error('Export failed:', err);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  const sections = Array.from(new Set(NAV_ENTRIES.map((e) => e.section)));
+  const activeEntry = NAV_ENTRIES.find((e) => e.id === activeTab);
 
   return (
     <AppShell>
-      <div className="max-w-3xl mx-auto space-y-6">
-        <div>
-          <h1 className="font-heading font-bold text-2xl text-gray-900">Skills Settings</h1>
-          <p className="text-sm text-gray-400 font-body mt-1">
-            Manage master data for the employee skill form.
-          </p>
+      <div className="space-y-6">
+        {/* Page header */}
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h1 className="font-heading font-bold text-2xl text-gray-900">Skills Settings</h1>
+            <p className="text-sm text-gray-400 font-body mt-1">
+              Manage master data for the employee skill form.
+            </p>
+          </div>
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold font-heading transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+          >
+            {exporting ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
+            Download
+          </button>
         </div>
 
-        <div className="flex gap-1 p-1 bg-gray-100 rounded-2xl overflow-x-auto">
-          {TABS.map((tab) => {
-            const Icon = tab.icon;
-            const active = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold font-heading whitespace-nowrap transition-all flex-1 justify-center ${
-                  active
-                    ? 'bg-white text-primary-600 shadow-sm shadow-gray-200/80'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                <Icon size={14} />
-                <span className="hidden sm:inline">{tab.label}</span>
-              </button>
-            );
-          })}
-        </div>
+        {/* Two-column layout */}
+        <div className="flex gap-6 items-start">
 
-        <SettingsPanel key={activeTab} tab={currentTab} />
+          {/* Left nav */}
+          <aside className="w-52 shrink-0 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden sticky top-6">
+            {sections.map((section) => {
+              const entries = NAV_ENTRIES.filter((e) => e.section === section);
+              return (
+                <div key={section}>
+                  <p className="px-4 pt-4 pb-1.5 text-[10px] font-bold font-heading uppercase tracking-widest text-gray-400 select-none">
+                    {section}
+                  </p>
+                  <ul className="pb-2">
+                    {entries.map((entry) => {
+                      const Icon = entry.icon;
+                      const active = activeTab === entry.id;
+                      return (
+                        <li key={entry.id}>
+                          <button
+                            onClick={() => setActiveTab(entry.id)}
+                            className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-sm font-body transition-colors text-left
+                              ${active
+                                ? 'bg-primary-50 text-primary-700 font-semibold border-r-2 border-primary-500'
+                                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-800'
+                              }`}
+                          >
+                            <Icon size={14} className={active ? 'text-primary-500' : 'text-gray-400'} />
+                            {entry.label}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {section !== sections[sections.length - 1] && (
+                    <div className="mx-4 border-t border-gray-100" />
+                  )}
+                </div>
+              );
+            })}
+          </aside>
+
+          {/* Content */}
+          <div className="flex-1 min-w-0">
+            {activeEntry && (
+              <div className="flex items-center gap-2.5 mb-5">
+                <div className="w-8 h-8 rounded-xl bg-primary-50 border border-primary-100 flex items-center justify-center shrink-0">
+                  <activeEntry.icon size={15} className="text-primary-500" />
+                </div>
+                <div>
+                  <h2 className="font-heading font-bold text-lg text-gray-900">{activeEntry.label}</h2>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'ratings' ? (
+              <SkillRatingsPanel />
+            ) : currentTab ? (
+              <SettingsPanel key={activeTab} tab={currentTab} />
+            ) : null}
+          </div>
+        </div>
       </div>
     </AppShell>
   );

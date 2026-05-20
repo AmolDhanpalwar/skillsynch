@@ -279,39 +279,51 @@ export default function TmgDashboardPage() {
 
       if (!employees) { setLoading(false); return; }
 
-      const managerIds = [...new Set(employees.map((e) => e.manager_id).filter(Boolean))];
+      const empIds = employees.map((e) => e.id);
+
+      const { data: forms } = await supabase
+        .from('skill_forms')
+        .select('id, employee_id, status, updated_at, manager_id')
+        .in('employee_id', empIds);
+
+      const formMap: Record<string, { id: string; status: FormStatus; updated_at: string; manager_id: string | null }> = {};
+      if (forms) forms.forEach((f) => { formMap[f.employee_id] = { id: f.id, status: f.status as FormStatus, updated_at: f.updated_at, manager_id: f.manager_id ?? null }; });
+
+      // Collect all unique manager IDs from both users.manager_id and skill_forms.manager_id
+      const allManagerIds = [...new Set([
+        ...employees.map((e) => e.manager_id),
+        ...Object.values(formMap).map((f) => f.manager_id),
+      ].filter((id): id is string => !!id))];
+
       let managersMap: Record<string, string> = {};
-      if (managerIds.length > 0) {
+      if (allManagerIds.length > 0) {
         const { data: managers } = await supabase
           .from('users')
           .select('id, full_name')
-          .in('id', managerIds as string[]);
+          .in('id', allManagerIds);
         if (managers) managersMap = Object.fromEntries(managers.map((m) => [m.id, m.full_name]));
       }
 
-      const empIds = employees.map((e) => e.id);
-      const { data: forms } = await supabase
-        .from('skill_forms')
-        .select('id, employee_id, status, updated_at')
-        .in('employee_id', empIds);
-
-      const formMap: Record<string, { id: string; status: FormStatus; updated_at: string }> = {};
-      if (forms) forms.forEach((f) => { formMap[f.employee_id] = { id: f.id, status: f.status as FormStatus, updated_at: f.updated_at }; });
-
       setRows(
-        employees.map((e) => ({
-          id: e.id,
-          full_name: e.full_name,
-          email: e.email,
-          designation: e.designation || '—',
-          grade: e.grade || '—',
-          employee_number: e.employee_number || '—',
-          manager_id: e.manager_id ?? null,
-          manager_name: e.manager_id ? (managersMap[e.manager_id] || '—') : '—',
-          form_id: formMap[e.id]?.id ?? null,
-          form_status: formMap[e.id]?.status ?? null,
-          form_updated_at: formMap[e.id]?.updated_at ?? null,
-        }))
+        employees.map((e) => {
+          const form = formMap[e.id];
+          // skill_forms.manager_id is the authoritative source (set by TMG/manager flows)
+          // Fall back to users.manager_id if form has none
+          const effectiveManagerId = form?.manager_id ?? e.manager_id ?? null;
+          return {
+            id: e.id,
+            full_name: e.full_name,
+            email: e.email,
+            designation: e.designation || '—',
+            grade: e.grade || '—',
+            employee_number: e.employee_number || '—',
+            manager_id: effectiveManagerId,
+            manager_name: effectiveManagerId ? (managersMap[effectiveManagerId] || '—') : '—',
+            form_id: form?.id ?? null,
+            form_status: form?.status ?? null,
+            form_updated_at: form?.updated_at ?? null,
+          };
+        })
       );
       setLoading(false);
     }

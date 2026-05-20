@@ -36,20 +36,29 @@ export const step1Schema = z.object({
   haptiq_exp: expField,
   manager_name: z.string(),
   manager_email: z.string(),
+}).superRefine((data, ctx) => {
+  if (data.manager_name.trim() && !data.manager_email.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Manager email is required when manager name is provided',
+      path: ['manager_email'],
+    });
+  }
+  if (data.manager_email.trim() && !z.string().email().safeParse(data.manager_email.trim()).success) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Enter a valid email',
+      path: ['manager_email'],
+    });
+  }
 });
 
 export type Step1Values = z.infer<typeof step1Schema>;
 export type Step1Input = z.input<typeof step1Schema>;
 
-export const SKILL_RATING_OPTIONS = [
-  { value: 0, label: '0 — No Knowledge' },
-  { value: 1, label: '1 — Beginner' },
-  { value: 2, label: '2 — Intermediate' },
-  { value: 3, label: '3 — Advanced' },
-  { value: 4, label: '4 — Expert' },
-] as const;
+export type SkillRatingOption = { sort_order: number; label: string };
 
-export type SkillRating = 0 | 1 | 2 | 3 | 4;
+export type SkillRating = number;
 
 export interface SkillRow {
   id: string;
@@ -83,6 +92,15 @@ export function makeSkillRow(name: string, is_seed = false): SkillRow {
   };
 }
 
+export interface StepAdditionalValues {
+  environments: SkillRow[];
+  environments_manager_comment: string;
+}
+
+export function makeDefaultStepAdditional(): StepAdditionalValues {
+  return { environments: [], environments_manager_comment: '' };
+}
+
 export interface Step3Values {
   certifications: string[];
   certifications_manager_comment: string;
@@ -104,8 +122,9 @@ export function makeDefaultStep4(): Step4Values {
 export const FORM_STEPS: { number: number; label: string }[] = [
   { number: 1, label: 'Profile' },
   { number: 2, label: 'Skills' },
-  { number: 3, label: 'Certifications' },
-  { number: 4, label: 'Plans & Submit' },
+  { number: 3, label: 'Additional Skills' },
+  { number: 4, label: 'Certifications' },
+  { number: 5, label: 'Plans & Submit' },
 ];
 
 export const STATUS_CONFIG: Record<

@@ -16,7 +16,19 @@ interface ManagerOption {
   email: string;
 }
 
-// ─── Searchable list field (Grade / Designation) ──────────────────────────────
+interface GradeOption {
+  id: string;
+  name: string;
+  sort_order: number;
+}
+
+interface DesignationOption {
+  id: string;
+  grade_id: string;
+  name: string;
+}
+
+// ─── Searchable list field ────────────────────────────────────────────────────
 
 interface SearchableListFieldProps {
   label: string;
@@ -26,6 +38,8 @@ interface SearchableListFieldProps {
   options: string[];
   placeholder?: string;
   error?: string;
+  disabled?: boolean;
+  hint?: string;
 }
 
 function SearchableListField({
@@ -36,6 +50,8 @@ function SearchableListField({
   options,
   placeholder = 'Search or type…',
   error,
+  disabled,
+  hint,
 }: SearchableListFieldProps) {
   const [query, setQuery] = useState(value);
   const [open, setOpen] = useState(false);
@@ -70,21 +86,27 @@ function SearchableListField({
 
   return (
     <div className="flex flex-col gap-1.5" ref={containerRef}>
-      <label className="text-xs font-semibold font-heading text-gray-600 uppercase tracking-wide">
+      <label className={`text-xs font-semibold font-heading uppercase tracking-wide ${disabled ? 'text-gray-400' : 'text-gray-600'}`}>
         {label}{required && <span className="text-red-400 ml-0.5">*</span>}
       </label>
       <div className="relative">
-        <div className={`flex items-center gap-2 w-full px-3.5 py-2.5 rounded-xl border text-sm font-body bg-white transition-all
-          ${open ? 'border-accent-400 ring-2 ring-accent-400/15' : 'border-gray-200 hover:border-gray-300'}`}>
+        <div className={`flex items-center gap-2 w-full px-3.5 py-2.5 rounded-xl border text-sm font-body transition-all
+          ${disabled
+            ? 'bg-gray-50 border-gray-100 cursor-not-allowed'
+            : open
+              ? 'bg-white border-accent-400 ring-2 ring-accent-400/15'
+              : 'bg-white border-gray-200 hover:border-gray-300'
+          }`}>
           <input
             type="text"
             value={query}
             onChange={handleChange}
-            onFocus={() => setOpen(true)}
-            placeholder={placeholder}
-            className="flex-1 bg-transparent outline-none text-gray-800 placeholder-gray-400"
+            onFocus={() => !disabled && setOpen(true)}
+            placeholder={disabled ? 'Select a grade first' : placeholder}
+            disabled={disabled}
+            className="flex-1 bg-transparent outline-none text-gray-800 placeholder-gray-400 disabled:cursor-not-allowed disabled:text-gray-400"
           />
-          {query ? (
+          {!disabled && query ? (
             <button
               type="button"
               onClick={() => { setQuery(''); onChange(''); setOpen(true); }}
@@ -97,7 +119,7 @@ function SearchableListField({
           )}
         </div>
 
-        {open && (
+        {open && !disabled && (
           <div className="absolute z-20 mt-1.5 w-full bg-white rounded-xl border border-gray-200 shadow-lg overflow-hidden max-h-52 overflow-y-auto">
             {filtered.length > 0 ? (
               filtered.map((opt) => (
@@ -119,6 +141,9 @@ function SearchableListField({
           </div>
         )}
       </div>
+      {hint && !error && (
+        <p className="text-xs text-gray-400 font-body">{hint}</p>
+      )}
       {error && (
         <p className="text-xs text-red-500 font-body flex items-center gap-1">
           <span className="inline-block w-1 h-1 rounded-full bg-red-400" />
@@ -154,21 +179,36 @@ export default function Step1Profile({ form }: Step1ProfileProps) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Grade / Designation options from settings tables
-  const [gradeOptions, setGradeOptions] = useState<string[]>([]);
-  const [designationOptions, setDesignationOptions] = useState<string[]>([]);
+  // Grade/Designation options
+  const [grades, setGrades] = useState<GradeOption[]>([]);
+  const [allDesignations, setAllDesignations] = useState<DesignationOption[]>([]);
 
   useEffect(() => {
     async function loadOptions() {
       const [gradesRes, desigRes] = await Promise.all([
-        supabase.from('settings_grades').select('name').eq('is_active', true).order('name'),
-        supabase.from('settings_designations').select('name').eq('is_active', true).order('name'),
+        supabase.from('settings_grades').select('id, name, sort_order').eq('is_active', true).order('sort_order'),
+        supabase.from('settings_designations').select('id, grade_id, name').eq('is_active', true).order('name'),
       ]);
-      setGradeOptions(gradesRes.data?.map((r) => r.name) ?? []);
-      setDesignationOptions(desigRes.data?.map((r) => r.name) ?? []);
+      setGrades(gradesRes.data ?? []);
+      setAllDesignations(desigRes.data ?? []);
     }
     loadOptions();
   }, []);
+
+  const gradeOptions = grades.map((g) => g.name);
+
+  const selectedGrade = grades.find((g) => g.name === gradeValue);
+  const designationOptions = selectedGrade
+    ? allDesignations.filter((d) => d.grade_id === selectedGrade.id).map((d) => d.name)
+    : [];
+
+  function handleGradeChange(val: string) {
+    setValue('grade', val, { shouldDirty: true });
+    // Reset designation when grade changes
+    if (val !== gradeValue) {
+      setValue('designation', '', { shouldDirty: true });
+    }
+  }
 
   // Sync pre-filled manager_name from DB load
   useEffect(() => {
@@ -191,6 +231,7 @@ export default function Step1Profile({ form }: Step1ProfileProps) {
         .from('users')
         .select('id, full_name, email')
         .ilike('full_name', `%${query.trim()}%`)
+        .eq('is_active', true)
         .limit(8);
       setResults(data ?? []);
       setOpen(true);
@@ -263,34 +304,36 @@ export default function Step1Profile({ form }: Step1ProfileProps) {
           {...register('employee_number')}
         />
 
-        {/* Designation — searchable list from settings */}
-        <SearchableListField
-          label="Designation"
-          required
-          value={designationValue ?? ''}
-          onChange={(val) => setValue('designation', val, { shouldDirty: true })}
-          options={designationOptions}
-          placeholder="Search or type designation…"
-          error={errors.designation?.message}
-        />
-
-        {/* Grade — searchable list from settings */}
-        <SearchableListField
-          label="Grade"
-          required
-          value={gradeValue ?? ''}
-          onChange={(val) => setValue('grade', val, { shouldDirty: true })}
-          options={gradeOptions}
-          placeholder="Search or type grade…"
-          error={errors.grade?.message}
-        />
-
         <FormField
           label="Current Project Name"
           required
           placeholder="Project name or account"
           error={errors.current_project?.message}
           {...register('current_project')}
+        />
+
+        {/* Grade — select first */}
+        <SearchableListField
+          label="Grade"
+          required
+          value={gradeValue ?? ''}
+          onChange={handleGradeChange}
+          options={gradeOptions}
+          placeholder="Select grade…"
+          error={errors.grade?.message}
+        />
+
+        {/* Designation — filtered by selected grade */}
+        <SearchableListField
+          label="Designation"
+          required
+          value={designationValue ?? ''}
+          onChange={(val) => setValue('designation', val, { shouldDirty: true })}
+          options={designationOptions}
+          placeholder="Search designation…"
+          error={errors.designation?.message}
+          disabled={!gradeValue}
+          hint={gradeValue ? `${designationOptions.length} designations for ${gradeValue}` : undefined}
         />
 
         <FormField
@@ -397,6 +440,7 @@ export default function Step1Profile({ form }: Step1ProfileProps) {
         <FormField
           label="Manager Email"
           type="email"
+          required={!!managerName?.trim()}
           placeholder="manager@company.com"
           hint={selectedManager ? 'Auto-filled from manager lookup' : undefined}
           error={errors.manager_email?.message}

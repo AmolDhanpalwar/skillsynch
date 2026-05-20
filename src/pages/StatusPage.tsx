@@ -68,7 +68,7 @@ export default function StatusPage() {
     const [{ data: employees }, { data: forms }, { data: allUsers }] = await Promise.all([
       supabase.from('users').select('id, full_name, email, manager_id').eq('role', 'employee'),
       supabase.from('skill_forms').select('id, employee_id, status, submitted_at, reminders_sent'),
-      supabase.from('users').select('id, full_name').in('role', ['manager', 'tmg', 'admin']),
+      supabase.from('users').select('id, full_name').eq('is_active', true),
     ]);
 
     const managerMap: Record<string, string> = {};
