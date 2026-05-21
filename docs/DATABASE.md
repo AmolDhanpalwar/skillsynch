@@ -340,3 +340,20 @@ mcp__supabase__apply_migration(
 - Enable RLS immediately after creating any new table: `ALTER TABLE t ENABLE ROW LEVEL SECURITY;`
 - Never use `DROP` or `DELETE` on production data
 - Never use explicit transaction control (`BEGIN` / `COMMIT`)
+
+**After applying a migration, update `supabase/full_schema.sql` to keep it in sync.** The full schema file is the single-file disaster recovery script — it must always reflect the current state of all migrations combined.
+
+---
+
+## Full Schema Script
+
+`supabase/full_schema.sql` is a complete, idempotent snapshot of the entire database schema. It consolidates all migrations into a single file that can be applied to a fresh Supabase project.
+
+**Use it when:**
+- Provisioning a new Supabase project from scratch
+- Recovering from catastrophic database loss
+- Syncing a staging or QA environment
+
+**Do not** include this file in the normal migrations sequence. It is a snapshot for disaster recovery, not an incremental migration.
+
+**To apply it:** paste the contents into the Supabase SQL Editor and click Run.
