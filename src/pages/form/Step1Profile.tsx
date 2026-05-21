@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 
 interface Step1ProfileProps {
   form: UseFormReturn<Step1Input, unknown, Step1Values>;
+  onOptionsLoaded?: (grades: string[], designations: string[]) => void;
 }
 
 interface ManagerOption {
@@ -174,7 +175,7 @@ function SearchableListField({
 
 // ─── Main Step1Profile ────────────────────────────────────────────────────────
 
-export default function Step1Profile({ form }: Step1ProfileProps) {
+export default function Step1Profile({ form, onOptionsLoaded }: Step1ProfileProps) {
   const { user } = useAuth();
 
   const {
@@ -207,8 +208,14 @@ export default function Step1Profile({ form }: Step1ProfileProps) {
         supabase.from('settings_grades').select('id, name, sort_order').eq('is_active', true).order('sort_order'),
         supabase.from('settings_designations').select('id, grade_id, name').eq('is_active', true).order('name'),
       ]);
-      setGrades(gradesRes.data ?? []);
-      setAllDesignations(desigRes.data ?? []);
+      const loadedGrades = gradesRes.data ?? [];
+      const loadedDesignations = desigRes.data ?? [];
+      setGrades(loadedGrades);
+      setAllDesignations(loadedDesignations);
+      onOptionsLoaded?.(
+        loadedGrades.map((g) => g.name),
+        loadedDesignations.map((d) => d.name),
+      );
     }
     loadOptions();
   }, []);

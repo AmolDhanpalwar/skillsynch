@@ -24,34 +24,55 @@ const expField = z
     return n;
   });
 
-export const step1Schema = z.object({
-  full_name: z.string().min(1, 'Employee name is required'),
-  email: z.string().email('Enter a valid email'),
-  employee_number: z.string().min(1, 'Employee number is required'),
-  designation: z.string().min(1, 'Select a valid designation from the list'),
-  grade: z.string().min(1, 'Select a valid grade from the list'),
-  current_project: z.string().min(1, 'Current project is required'),
-  total_exp: expField,
-  relevant_exp: expField,
-  haptiq_exp: expField,
-  manager_name: z.string(),
-  manager_email: z.string(),
-}).superRefine((data, ctx) => {
-  if (data.manager_name.trim() && !data.manager_email.trim()) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'Manager email is required when manager name is provided',
-      path: ['manager_email'],
-    });
-  }
-  if (data.manager_email.trim() && !z.string().email().safeParse(data.manager_email.trim()).success) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'Enter a valid email',
-      path: ['manager_email'],
-    });
-  }
-});
+export function makeStep1Schema(validGrades: string[] = [], validDesignations: string[] = []) {
+  return z.object({
+    full_name: z.string().min(1, 'Employee name is required'),
+    email: z.string().email('Enter a valid email'),
+    employee_number: z.string().min(1, 'Employee number is required'),
+    designation: z.string().min(1, 'Select a valid designation from the list'),
+    grade: z.string().min(1, 'Select a valid grade from the list'),
+    current_project: z.string().min(1, 'Current project is required'),
+    total_exp: expField,
+    relevant_exp: expField,
+    haptiq_exp: expField,
+    manager_name: z.string(),
+    manager_email: z.string(),
+  }).superRefine((data, ctx) => {
+    // Validate grade against known valid options (when options are loaded)
+    if (validGrades.length > 0 && data.grade && !validGrades.includes(data.grade)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `"${data.grade}" is not a valid grade — please select from the list`,
+        path: ['grade'],
+      });
+    }
+    // Validate designation against known valid options (when options are loaded)
+    if (validDesignations.length > 0 && data.designation && !validDesignations.includes(data.designation)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `"${data.designation}" is not a valid designation — please select from the list`,
+        path: ['designation'],
+      });
+    }
+    if (data.manager_name.trim() && !data.manager_email.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Manager email is required when manager name is provided',
+        path: ['manager_email'],
+      });
+    }
+    if (data.manager_email.trim() && !z.string().email().safeParse(data.manager_email.trim()).success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Enter a valid email',
+        path: ['manager_email'],
+      });
+    }
+  });
+}
+
+// Default schema (no option validation) — used as initial resolver before options load
+export const step1Schema = makeStep1Schema();
 
 export type Step1Values = z.infer<typeof step1Schema>;
 export type Step1Input = z.input<typeof step1Schema>;

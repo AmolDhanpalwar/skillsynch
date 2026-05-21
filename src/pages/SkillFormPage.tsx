@@ -16,7 +16,7 @@ import { FormProvider, useFormContext } from '../context/FormContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabaseClient';
 import {
-  step1Schema,
+  makeStep1Schema,
   DRAFT_KEY,
   FORM_STEPS,
   SEED_LANGUAGES,
@@ -169,8 +169,11 @@ function SkillFormInner() {
   const isReturned = formStatus === 'returned';
   const isLocked = isApproved || formStatus === 'pending_review';
 
+  const validOptionsRef = useRef<{ grades: string[]; designations: string[] }>({ grades: [], designations: [] });
+
   const form = useForm<Step1Input, unknown, Step1Values>({
-    resolver: zodResolver(step1Schema),
+    resolver: (values, context, options) =>
+      zodResolver(makeStep1Schema(validOptionsRef.current.grades, validOptionsRef.current.designations))(values, context, options),
     defaultValues: {
       full_name: '',
       email: '',
@@ -581,7 +584,14 @@ function SkillFormInner() {
           </div>
 
           <div className="px-6 py-7">
-            {currentStep === 1 && <Step1Profile form={form} />}
+            {currentStep === 1 && (
+              <Step1Profile
+                form={form}
+                onOptionsLoaded={(grades, designations) => {
+                  validOptionsRef.current = { grades, designations };
+                }}
+              />
+            )}
             {currentStep === 2 && (
               <Step2Skills ref={step2Ref} values={step2} onChange={isLocked ? () => {} : setStep2} />
             )}
