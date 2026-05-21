@@ -28,7 +28,7 @@ interface DesignationOption {
   name: string;
 }
 
-// ─── Searchable list field ────────────────────────────────────────────────────
+// ─── Searchable list field (select-only — only valid options are accepted) ────
 
 interface SearchableListFieldProps {
   label: string;
@@ -48,29 +48,33 @@ function SearchableListField({
   value,
   onChange,
   options,
-  placeholder = 'Search or type…',
+  placeholder = 'Search…',
   error,
   disabled,
   hint,
 }: SearchableListFieldProps) {
-  const [query, setQuery] = useState(value);
+  const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Keep query in sync when value is set externally (e.g. form pre-fill)
   useEffect(() => { setQuery(value); }, [value]);
 
-  const filtered = options.filter((o) => o.toLowerCase().includes(query.toLowerCase()));
+  const filtered = query
+    ? options.filter((o) => o.toLowerCase().includes(query.toLowerCase()))
+    : options;
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false);
-        if (query !== value) onChange(query);
+        // If user typed something that doesn't match the current valid value, revert
+        if (query !== value) setQuery(value);
       }
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
-  }, [query, value, onChange]);
+  }, [query, value]);
 
   function select(option: string) {
     setQuery(option);
@@ -78,11 +82,20 @@ function SearchableListField({
     setOpen(false);
   }
 
-  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {
     setQuery(e.target.value);
-    onChange(e.target.value);
+    // Clear the form value — user must pick from the list
+    if (e.target.value !== value) onChange('');
     setOpen(true);
   }
+
+  function handleClear() {
+    setQuery('');
+    onChange('');
+    setOpen(true);
+  }
+
+  const isValid = value && options.includes(value);
 
   return (
     <div className="flex flex-col gap-1.5" ref={containerRef}>
@@ -93,23 +106,28 @@ function SearchableListField({
         <div className={`flex items-center gap-2 w-full px-3.5 py-2.5 rounded-xl border text-sm font-body transition-all
           ${disabled
             ? 'bg-gray-50 border-gray-100 cursor-not-allowed'
-            : open
-              ? 'bg-white border-accent-400 ring-2 ring-accent-400/15'
-              : 'bg-white border-gray-200 hover:border-gray-300'
+            : error
+              ? 'bg-white border-red-300 ring-2 ring-red-200/50'
+              : isValid
+                ? 'bg-white border-emerald-300 ring-2 ring-emerald-200/40'
+                : open
+                  ? 'bg-white border-accent-400 ring-2 ring-accent-400/15'
+                  : 'bg-white border-gray-200 hover:border-gray-300'
           }`}>
           <input
             type="text"
             value={query}
-            onChange={handleChange}
+            onChange={handleInputChange}
             onFocus={() => !disabled && setOpen(true)}
             placeholder={disabled ? 'Select a grade first' : placeholder}
             disabled={disabled}
+            autoComplete="off"
             className="flex-1 bg-transparent outline-none text-gray-800 placeholder-gray-400 disabled:cursor-not-allowed disabled:text-gray-400"
           />
           {!disabled && query ? (
             <button
               type="button"
-              onClick={() => { setQuery(''); onChange(''); setOpen(true); }}
+              onClick={handleClear}
               className="text-gray-300 hover:text-gray-500 transition-colors shrink-0"
             >
               <X size={13} />
@@ -120,7 +138,7 @@ function SearchableListField({
         </div>
 
         {open && !disabled && (
-          <div className="absolute z-20 mt-1.5 w-full bg-white rounded-xl border border-gray-200 shadow-lg overflow-hidden max-h-52 overflow-y-auto">
+          <div className="absolute z-20 mt-1.5 w-full bg-white rounded-xl border border-gray-200 shadow-lg overflow-hidden max-h-56 overflow-y-auto">
             {filtered.length > 0 ? (
               filtered.map((opt) => (
                 <button
@@ -135,7 +153,7 @@ function SearchableListField({
               ))
             ) : (
               <div className="px-4 py-3 text-xs text-gray-400 font-body">
-                No match — value saved as entered.
+                No matching options found.
               </div>
             )}
           </div>
@@ -203,10 +221,10 @@ export default function Step1Profile({ form }: Step1ProfileProps) {
     : [];
 
   function handleGradeChange(val: string) {
-    setValue('grade', val, { shouldDirty: true });
+    setValue('grade', val, { shouldDirty: true, shouldValidate: true });
     // Reset designation when grade changes
     if (val !== gradeValue) {
-      setValue('designation', '', { shouldDirty: true });
+      setValue('designation', '', { shouldDirty: true, shouldValidate: false });
     }
   }
 
@@ -328,12 +346,12 @@ export default function Step1Profile({ form }: Step1ProfileProps) {
           label="Designation"
           required
           value={designationValue ?? ''}
-          onChange={(val) => setValue('designation', val, { shouldDirty: true })}
+          onChange={(val) => setValue('designation', val, { shouldDirty: true, shouldValidate: true })}
           options={designationOptions}
           placeholder="Search designation…"
           error={errors.designation?.message}
-          disabled={!gradeValue}
-          hint={gradeValue ? `${designationOptions.length} designations for ${gradeValue}` : undefined}
+          disabled={!gradeValue || !gradeOptions.includes(gradeValue)}
+          hint={gradeValue && gradeOptions.includes(gradeValue) ? `${designationOptions.length} designation${designationOptions.length !== 1 ? 's' : ''} for ${gradeValue}` : undefined}
         />
 
         <FormField
