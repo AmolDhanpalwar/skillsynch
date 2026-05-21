@@ -76,12 +76,20 @@ function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
         },
         body: JSON.stringify(form),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to create user');
+      let data: { error?: string; success?: boolean; user_id?: string } = {};
+      try { data = await res.json(); } catch { /* non-JSON response */ }
+      if (!res.ok) {
+        const raw = data.error ?? '';
+        if (raw.toLowerCase().includes('already registered') || raw.toLowerCase().includes('already been registered') || raw.toLowerCase().includes('duplicate') || raw.toLowerCase().includes('unique')) {
+          throw new Error('A user with this email address already exists.');
+        }
+        throw new Error(raw || 'Failed to create user. Please try again.');
+      }
       onCreated();
       onClose();
     } catch (err) {
-      setError((err as Error).message);
+      const msg = (err as Error).message ?? '';
+      setError(msg || 'An error occurred. Please try again.');
     } finally {
       setSaving(false);
     }

@@ -34,8 +34,13 @@ Deno.serve(async (req: Request) => {
     });
 
     if (authError) {
+      const msg = authError.message ?? '';
+      const isDuplicate = msg.toLowerCase().includes('already registered') ||
+        msg.toLowerCase().includes('already been registered') ||
+        msg.toLowerCase().includes('duplicate') ||
+        authError.status === 422;
       return new Response(
-        JSON.stringify({ error: authError.message }),
+        JSON.stringify({ error: isDuplicate ? 'A user with this email address already exists.' : msg }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
