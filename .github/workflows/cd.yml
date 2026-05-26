@@ -1,0 +1,145 @@
+name: CD — Deploy to ECS
+
+on:
+  push:
+    branches: [main]
+  # Allow manual re-deploy without a code change
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: Reason for manual deploy
+        required: false
+        default: Manual trigger
+
+# Production deploys must NEVER be cancelled mid-flight.
+# Subsequent runs queue and run after the current deploy finishes.
+concurrency:
+  group: cd-production
+  cancel-in-progress: false
+
+env:
+  AWS_REGION:      us-east-1
+  ECR_REPOSITORY:  skillsync-app
+  ECS_CLUSTER:     skillsync-cluster
+  ECS_SERVICE:     skillsync-service
+  CONTAINER_NAME:  skillsync-app
+  TASK_FAMILY:     skillsync-app
+
+jobs:
+  deploy:
+    name: Build → Push ECR → Deploy ECS
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    permissions:
+      id-token: write  # Required for OIDC token exchange with AWS
+      contents: read
+
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+      sha:   ${{ steps.meta.outputs.sha }}
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Authenticate to AWS via OIDC (no long-lived keys) ─────────────────
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-skillsync
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ── 3. Log in to ECR ──────────────────────────────────────────────────────
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ── 4. Compute image tags ─────────────────────────────────────────────────
+      # Two tags: immutable SHA tag (for rollback) + latest (for convenience)
+      - name: Set image metadata
+        id: meta
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          REGISTRY="${{ steps.login-ecr.outputs.registry }}"
+          IMAGE="${REGISTRY}/${{ env.ECR_REPOSITORY }}:${SHORT_SHA}"
+          IMAGE_LATEST="${REGISTRY}/${{ env.ECR_REPOSITORY }}:latest"
+          echo "image=${IMAGE}"           >> "$GITHUB_OUTPUT"
+          echo "image_latest=${IMAGE_LATEST}" >> "$GITHUB_OUTPUT"
+          echo "sha=${SHORT_SHA}"         >> "$GITHUB_OUTPUT"
+          echo "registry=${REGISTRY}"     >> "$GITHUB_OUTPUT"
+
+      # ── 5. Build Docker image ─────────────────────────────────────────────────
+      # VITE_* vars are baked into the JS bundle at build time by Vite's define
+      # transform. They are NOT runtime container env vars.
+      - name: Build Docker image
+        run: |
+          docker build \
+            --build-arg VITE_SUPABASE_URL="${{ secrets.VITE_SUPABASE_URL }}" \
+            --build-arg VITE_SUPABASE_ANON_KEY="${{ secrets.VITE_SUPABASE_ANON_KEY }}" \
+            --tag "${{ steps.meta.outputs.image }}" \
+            --tag "${{ steps.meta.outputs.image_latest }}" \
+            --file Dockerfile \
+            --label "git.sha=${{ github.sha }}" \
+            --label "git.ref=${{ github.ref }}" \
+            --label "build.run=${{ github.run_id }}" \
+            .
+
+      # ── 6. Smoke test before pushing ─────────────────────────────────────────
+      - name: Smoke test built image
+        run: |
+          docker run --rm -d -p 8080:80 --name skillsync-smoke "${{ steps.meta.outputs.image }}"
+          sleep 3
+          curl -sf http://localhost:8080/health
+          docker stop skillsync-smoke
+
+      # ── 7. Push to ECR ────────────────────────────────────────────────────────
+      - name: Push image to ECR
+        run: |
+          docker push "${{ steps.meta.outputs.image }}"
+          docker push "${{ steps.meta.outputs.image_latest }}"
+
+      # ── 8. Download live task definition ─────────────────────────────────────
+      # Download-and-patch is preferred over committing task-definition.json
+      # because it stays in sync with out-of-band changes (console/Terraform).
+      - name: Download current ECS task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition ${{ env.TASK_FAMILY }} \
+            --query taskDefinition \
+            > task-definition-current.json
+
+      # ── 9. Patch image in task definition ────────────────────────────────────
+      - name: Update task definition image
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition-current.json
+          container-name:  ${{ env.CONTAINER_NAME }}
+          image:           ${{ steps.meta.outputs.image }}
+
+      # ── 10. Deploy to ECS ─────────────────────────────────────────────────────
+      # wait-for-service-stability=true blocks until new tasks are healthy and
+      # old tasks have drained. Fails loudly if the new container crashes.
+      - name: Deploy to ECS Fargate
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition:            ${{ steps.task-def.outputs.task-definition }}
+          service:                    ${{ env.ECS_SERVICE }}
+          cluster:                    ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      # ── 11. Annotate the deployment ───────────────────────────────────────────
+      - name: Summarize deployment
+        if: always()
+        run: |
+          echo "### Deployment Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Cluster | \`${{ env.ECS_CLUSTER }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Service | \`${{ env.ECS_SERVICE }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Image tag | \`${{ steps.meta.outputs.sha }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Commit | \`${{ github.sha }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Triggered by | ${{ github.actor }} |" >> "$GITHUB_STEP_SUMMARY"

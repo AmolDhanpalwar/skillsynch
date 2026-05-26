@@ -1,0 +1,51 @@
+{
+  "family": "skillsync-app",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/skillsync-task-execution-role",
+  "containerDefinitions": [
+    {
+      "name": "skillsync-app",
+      "image": "<ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/skillsync-app:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 80,
+          "protocol": "tcp"
+        }
+      ],
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "wget -q --spider http://localhost/health || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 10
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/skillsync-app",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs",
+          "awslogs-create-group": "true"
+        }
+      },
+      "readonlyRootFilesystem": false,
+      "environment": [],
+      "secrets": [],
+      "linuxParameters": {
+        "initProcessEnabled": true
+      }
+    }
+  ],
+  "tags": [
+    { "key": "Project",     "value": "skillsync" },
+    { "key": "ManagedBy",   "value": "github-actions" },
+    { "key": "Environment", "value": "production" }
+  ]
+}
