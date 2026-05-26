@@ -10,11 +10,13 @@ import {
   Users,
   ChevronRight,
   Loader2,
+  Download,
 } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
 import Toast from '../components/form/Toast';
 import { SkeletonListItem } from '../components/ui/Skeleton';
 import { supabase } from '../lib/supabaseClient';
+import { exportSkillAssessmentReport } from '../lib/exportService';
 import { useAuth } from '../context/AuthContext';
 import type { FormStatus } from '../types';
 
@@ -92,6 +94,7 @@ export default function InboxPage() {
   const [forms, setForms] = useState<TeamForm[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterStatus>('all');
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
 
@@ -146,6 +149,18 @@ export default function InboxPage() {
   const pendingCount = forms.filter((f) => f.status === 'pending_review').length;
   const approvedCount = forms.filter((f) => f.status === 'approved').length;
   const returnedCount = forms.filter((f) => f.status === 'returned').length;
+
+  async function handleDownloadReport(formId: string) {
+    setDownloadingId(formId);
+    try {
+      await exportSkillAssessmentReport(formId);
+    } catch (err) {
+      setToastMsg('Failed to generate report. Please try again.');
+      setToastVisible(true);
+    } finally {
+      setDownloadingId(null);
+    }
+  }
 
   return (
     <AppShell>
@@ -267,6 +282,21 @@ export default function InboxPage() {
                       <Icon size={11} />
                       {cfg.label}
                     </span>
+
+                    {form.status === 'approved' && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDownloadReport(form.id); }}
+                        disabled={downloadingId === form.id}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 text-xs font-semibold font-heading transition-all shrink-0 disabled:opacity-50"
+                      >
+                        {downloadingId === form.id ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <Download size={12} />
+                        )}
+                        {downloadingId === form.id ? 'Generating…' : 'Download'}
+                      </button>
+                    )}
 
                     <button
                       onClick={(e) => { e.stopPropagation(); navigate(`/inbox/review/${form.id}`); }}

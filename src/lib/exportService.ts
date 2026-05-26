@@ -1,6 +1,15 @@
 import * as XLSX from 'xlsx';
+import { jsPDF } from 'jspdf';
 import { supabase } from './supabaseClient';
 import type { FormStatus } from '../types';
+
+// Haptiq Brand Colors
+const HAPTIQ_NAVY = '#1A3C5E';
+const HAPTIQ_TEAL = '#00A9CE';
+const HAPTIQ_LIGHT_BG = '#F0F7FA';
+const HAPTIQ_DARK_GRAY = '#374151';
+const HAPTIQ_MEDIUM_GRAY = '#6B7280';
+const HAPTIQ_LIGHT_GRAY = '#E5E7EB';
 
 export interface ExportFilters {
   fromDate?: string;
@@ -13,6 +22,7 @@ interface SkillItem {
   name: string;
   employee_rating: number | null;
   manager_rating: number | null;
+  manager_comment?: string | null;
 }
 
 interface FormRecord {
@@ -78,6 +88,13 @@ function formatDate(iso: string | null): string {
   });
 }
 
+function formatDateLong(iso: string | null): string {
+  if (!iso) return 'N/A';
+  return new Date(iso).toLocaleDateString('en-GB', {
+    day: 'numeric', month: 'long', year: 'numeric',
+  });
+}
+
 function daysPending(submittedAt: string | null, approvedAt: string | null): number | string {
   if (!submittedAt) return '';
   const end = approvedAt ? new Date(approvedAt) : new Date();
@@ -94,6 +111,428 @@ function titleCase(s: string): string {
   return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function drawHaptiqHeader(doc: jsPDF, pageWidth: number): number {
+  const headerHeight = 35;
+
+  // Navy header background
+  doc.setFillColor(26, 60, 94);
+  doc.rect(0, 0, pageWidth, headerHeight, 'F');
+
+  // Teal accent line
+  doc.setFillColor(0, 169, 206);
+  doc.rect(0, headerHeight - 2, pageWidth, 2, 'F');
+
+  // HAPTIQ logo text
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(22);
+  doc.setFont('helvetica', 'bold');
+  doc.text('HAPTIQ', 15, 18);
+
+  // Small teal underline under logo
+  doc.setFillColor(0, 169, 206);
+  doc.rect(15, 20, 40, 1.5, 'F');
+
+  // SkillSync subtitle
+  doc.setFontSize(9);
+  doc.setTextColor(0, 169, 206);
+  doc.text('SKILLSYNC', 15, 27);
+
+  return headerHeight;
+}
+
+function drawSectionHeader(doc: jsPDF, title: string, y: number, pageWidth: number): number {
+  const padding = 10;
+  const headerHeight = 10;
+
+  // Navy background for section header
+  doc.setFillColor(26, 60, 94);
+  doc.roundedRect(padding - 2, y, pageWidth - 2 * padding + 4, headerHeight, 2, 2, 'F');
+
+  // Title
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.text(title, padding + 2, y + 6.5);
+
+  return y + headerHeight + 5;
+}
+
+function drawInfoRow(doc: jsPDF, label: string, value: string, y: number, x1: number, x2: number): number {
+  doc.setTextColor(107, 114, 128);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.text(label, x1, y);
+
+  doc.setTextColor(26, 60, 94);
+  doc.setFont('helvetica', 'bold');
+  doc.text(value || '-', x2, y);
+
+  return y + 6;
+}
+
+function drawSkillTable(
+  doc: jsPDF,
+  title: string,
+  skills: Array<{ name: string; employee_rating: number | null; manager_rating: number | null; manager_comment?: string | null }>,
+  startY: number,
+  pageWidth: number,
+  pageHeight: number
+): number {
+  if (skills.length === 0) return startY;
+
+  let y = startY;
+  const padding = 10;
+  const rowHeight = 8;
+  const cols = [0.35, 0.2, 0.2, 0.25]; // Skill, Self, Manager, Comment
+  const widths = cols.map((c) => (pageWidth - 2 * padding) * c);
+
+  // Check if we need a new page
+  const estimatedHeight = 12 + skills.length * rowHeight;
+  if (y + estimatedHeight > pageHeight - 20) {
+    doc.addPage();
+    y = drawHaptiqHeader(doc, pageWidth) + 10;
+  }
+
+  // Section header
+  y = drawSectionHeader(doc, title, y, pageWidth);
+
+  // Table header
+  doc.setFillColor(240, 247, 250);
+  doc.rect(padding, y, pageWidth - 2 * padding, rowHeight, 'F');
+
+  doc.setTextColor(26, 60, 94);
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'bold');
+
+  let x = padding + 2;
+  doc.text('Skill', x, y + 5);
+  x += widths[0];
+  doc.text('Self Rating', x, y + 5);
+  x += widths[1];
+  doc.text('Manager Rating', x, y + 5);
+  x += widths[2];
+  doc.text('Comment', x, y + 5);
+
+  y += rowHeight;
+
+  // Table rows
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(55, 65, 81);
+
+  skills.forEach((skill) => {
+    // Check for page break
+    if (y > pageHeight - 20) {
+      doc.addPage();
+      y = drawHaptiqHeader(doc, pageWidth) + 10;
+    }
+
+    // Alternating row background
+    if (skills.indexOf(skill) % 2 === 0) {
+      doc.setFillColor(255, 255, 255);
+    } else {
+      doc.setFillColor(250, 252, 254);
+    }
+    doc.rect(padding, y, pageWidth - 2 * padding, rowHeight, 'F');
+
+    // Row border
+    doc.setDrawColor(229, 231, 235);
+    doc.line(padding, y, padding + pageWidth - 2 * padding, y);
+
+    x = padding + 2;
+    doc.setTextColor(26, 60, 94);
+    doc.text(skill.name.substring(0, 25), x, y + 5);
+    x += widths[0];
+    doc.setTextColor(55, 65, 81);
+    doc.text(skill.employee_rating !== null ? `${skill.employee_rating}/5` : '-', x, y + 5);
+    x += widths[1];
+    doc.text(skill.manager_rating !== null ? `${skill.manager_rating}/5` : '-', x, y + 5);
+    x += widths[2];
+    const comment = (skill.manager_comment || '-').substring(0, 30);
+    doc.text(comment, x, y + 5);
+
+    y += rowHeight;
+  });
+
+  // Bottom border
+  doc.setDrawColor(229, 231, 235);
+  doc.line(padding, y, padding + pageWidth - 2 * padding, y);
+
+  return y + 8;
+}
+
+function wrapText(doc: jsPDF, text: string, maxWidth: number): string[] {
+  const lines: string[] = [];
+  let currentLine = '';
+
+  const words = text.split(' ');
+  for (const word of words) {
+    const testLine = currentLine ? `${currentLine} ${word}` : word;
+    const width = doc.getTextWidth(testLine);
+    if (width > maxWidth && currentLine) {
+      lines.push(currentLine);
+      currentLine = word;
+    } else {
+      currentLine = testLine;
+    }
+  }
+  if (currentLine) lines.push(currentLine);
+  return lines.length > 0 ? lines : [text];
+}
+
+export async function exportSkillAssessmentReport(formId: string): Promise<void> {
+  const { data: sf, error } = await supabase
+    .from('skill_forms')
+    .select(`id, status, submitted_at, approved_at, updated_at,
+            total_exp, relevant_exp, haptiq_exp, current_project, tools, databases,
+            certifications, upskilling_plan, manager_expectation_plan,
+            users!skill_forms_employee_id_fkey(id, full_name, email, employee_number, designation, grade, manager_id)`)
+    .eq('id', formId)
+    .maybeSingle();
+
+  if (error || !sf) {
+    throw new Error('Could not load form data');
+  }
+
+  const emp = sf.users as Record<string, unknown>;
+  const managerId = emp?.manager_id as string | null;
+
+  let managerName = '';
+  if (managerId) {
+    const { data: mgr } = await supabase
+      .from('users')
+      .select('full_name')
+      .eq('id', managerId)
+      .maybeSingle();
+    managerName = mgr?.full_name ?? '';
+  }
+
+  const { data: itemsRaw } = await supabase
+    .from('skill_items')
+    .select('category, name, employee_rating, manager_rating, manager_comment, sort_order')
+    .eq('form_id', formId)
+    .order('sort_order');
+
+  const languages = (itemsRaw ?? []).filter((i) => i.category === 'language');
+  const frameworks = (itemsRaw ?? []).filter((i) => i.category === 'framework');
+
+  // Create PDF
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const padding = 10;
+
+  let y = drawHaptiqHeader(doc, pageWidth) + 10;
+
+  // Title
+  doc.setTextColor(26, 60, 94);
+  doc.setFontSize(16);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Skill Assessment Report', padding, y);
+  y += 8;
+
+  // Document date
+  doc.setTextColor(107, 114, 128);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Generated on ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}`, padding, y);
+  y += 12;
+
+  // Employee Profile Section
+  y = drawSectionHeader(doc, 'Employee Profile', y, pageWidth);
+  y += 4;
+
+  const col1x = padding + 2;
+  const col2x = pageWidth / 2 + 5;
+
+  // First column
+  let rowY = y;
+  rowY = drawInfoRow(doc, 'Name:', (emp?.full_name as string) || '-', rowY, col1x, col1x + 25);
+  rowY = drawInfoRow(doc, 'Email:', (emp?.email as string) || '-', rowY, col1x, col1x + 25);
+  rowY = drawInfoRow(doc, 'Employee No:', (emp?.employee_number as string) || '-', rowY, col1x, col1x + 25);
+
+  // Second column
+  let rowY2 = y;
+  rowY2 = drawInfoRow(doc, 'Designation:', (emp?.designation as string) || '-', rowY2, col2x, col2x + 25);
+  rowY2 = drawInfoRow(doc, 'Grade:', (emp?.grade as string) || '-', rowY2, col2x, col2x + 25);
+  rowY2 = drawInfoRow(doc, 'Manager:', managerName || '-', rowY2, col2x, col2x + 25);
+
+  y = Math.max(rowY, rowY2) + 4;
+
+  // Experience Section
+  y = drawSectionHeader(doc, 'Experience', y, pageWidth);
+  y += 4;
+
+  rowY = y;
+  rowY = drawInfoRow(doc, 'Total Experience:', sf.total_exp ? `${sf.total_exp} years` : '-', rowY, col1x, col1x + 35);
+  rowY = drawInfoRow(doc, 'Relevant Experience:', sf.relevant_exp ? `${sf.relevant_exp} years` : '-', rowY, col1x, col1x + 35);
+  rowY = drawInfoRow(doc, 'Haptiq Experience:', sf.haptiq_exp ? `${sf.haptiq_exp} years` : '-', rowY, col1x, col1x + 35);
+
+  rowY2 = y;
+  rowY2 = drawInfoRow(doc, 'Current Project:', sf.current_project || '-', rowY2, col2x, col2x + 35);
+
+  y = Math.max(rowY, rowY2) + 4;
+
+  // Assessment Details
+  y = drawSectionHeader(doc, 'Assessment Details', y, pageWidth);
+  y += 4;
+
+  rowY = y;
+  rowY = drawInfoRow(doc, 'Status:', titleCase(sf.status), rowY, col1x, col1x + 20);
+  rowY = drawInfoRow(doc, 'Submitted:', formatDateLong(sf.submitted_at), rowY, col1x, col1x + 20);
+  rowY = drawInfoRow(doc, 'Approved:', formatDateLong(sf.approved_at), rowY, col1x, col1x + 20);
+
+  y = rowY + 8;
+
+  // Skills sections
+  y = drawSkillTable(doc, 'Programming Languages', languages, y, pageWidth, pageHeight);
+  y = drawSkillTable(doc, 'Frameworks', frameworks, y, pageWidth, pageHeight);
+
+  // Additional Skills Section
+  if (y > pageHeight - 60) {
+    doc.addPage();
+    y = drawHaptiqHeader(doc, pageWidth) + 10;
+  }
+
+  y = drawSectionHeader(doc, 'Additional Skills', y, pageWidth);
+  y += 4;
+
+  rowY = y;
+  doc.setTextColor(107, 114, 128);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Tools & Technologies:', col1x, rowY);
+  doc.setTextColor(26, 60, 94);
+  doc.setFont('helvetica', 'bold');
+  doc.text(safeStr(sf.tools) || '-', col1x + 35, rowY);
+  rowY += 6;
+
+  doc.setTextColor(107, 114, 128);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Databases:', col1x, rowY);
+  doc.setTextColor(26, 60, 94);
+  doc.setFont('helvetica', 'bold');
+  doc.text(safeStr(sf.databases) || '-', col1x + 35, rowY);
+  y = rowY + 8;
+
+  // Certifications Section
+  if (y > pageHeight - 50) {
+    doc.addPage();
+    y = drawHaptiqHeader(doc, pageWidth) + 10;
+  }
+
+  y = drawSectionHeader(doc, 'Certifications', y, pageWidth);
+  y += 4;
+
+  const certs = (sf.certifications as string[] | null)?.filter(Boolean) ?? [];
+  if (certs.length === 0) {
+    doc.setTextColor(107, 114, 128);
+    doc.setFontSize(9);
+    doc.text('No certifications listed', col1x, y);
+    y += 6;
+  } else {
+    certs.forEach((cert) => {
+      if (y > pageHeight - 15) {
+        doc.addPage();
+        y = drawHaptiqHeader(doc, pageWidth) + 10;
+      }
+      doc.setTextColor(26, 60, 94);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.setFillColor(240, 247, 250);
+      doc.roundedRect(col1x, y - 4, 4, 4, 1, 1, 'F');
+      doc.text(cert, col1x + 7, y);
+      y += 6;
+    });
+  }
+  y += 4;
+
+  // Development Plans Section
+  if (y > pageHeight - 80) {
+    doc.addPage();
+    y = drawHaptiqHeader(doc, pageWidth) + 10;
+  }
+
+  y = drawSectionHeader(doc, 'Development Plans', y, pageWidth);
+  y += 6;
+
+  // Upskilling Plan
+  doc.setTextColor(26, 60, 94);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.text('6-Month Upskilling Plan (Employee)', col1x, y);
+  y += 5;
+
+  doc.setTextColor(55, 65, 81);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+
+  const upskillText = safeStr(sf.upskilling_plan) || 'Not specified';
+  const upskillLines = wrapText(doc, upskillText, pageWidth - 2 * padding - 5);
+  upskillLines.forEach((line) => {
+    if (y > pageHeight - 15) {
+      doc.addPage();
+      y = drawHaptiqHeader(doc, pageWidth) + 10;
+    }
+    doc.text(line, col1x + 3, y);
+    y += 5;
+  });
+  y += 6;
+
+  // Manager Expectation Plan
+  if (y > pageHeight - 30) {
+    doc.addPage();
+    y = drawHaptiqHeader(doc, pageWidth) + 10;
+  }
+
+  doc.setTextColor(26, 60, 94);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Manager Expectation Plan', col1x, y);
+  y += 5;
+
+  doc.setTextColor(55, 65, 81);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+
+  const expectationText = safeStr(sf.manager_expectation_plan) || 'Not specified';
+  const expectationLines = wrapText(doc, expectationText, pageWidth - 2 * padding - 5);
+  expectationLines.forEach((line) => {
+    if (y > pageHeight - 15) {
+      doc.addPage();
+      y = drawHaptiqHeader(doc, pageWidth) + 10;
+    }
+    doc.text(line, col1x + 3, y);
+    y += 5;
+  });
+
+  // Footer on all pages
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+
+    // Footer line
+    doc.setDrawColor(229, 231, 235);
+    doc.line(padding, pageHeight - 15, pageWidth - padding, pageHeight - 15);
+
+    // Footer text
+    doc.setTextColor(107, 114, 128);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Haptiq SkillSync - Confidential', padding, pageHeight - 10);
+    doc.text(`Page ${i} of ${totalPages}`, pageWidth - padding - 20, pageHeight - 10);
+  }
+
+  const employeeName = (emp?.full_name as string) ?? 'employee';
+  const filename = `skill-assessment-${employeeName.toLowerCase().replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}.pdf`;
+  doc.save(filename);
+}
+
 export async function exportToExcel(filters: ExportFilters = {}): Promise<void> {
   let query = supabase
     .from('skill_forms')
@@ -106,7 +545,7 @@ export async function exportToExcel(filters: ExportFilters = {}): Promise<void> 
     .order('updated_at', { ascending: false });
 
   if (filters.fromDate) query = query.gte('submitted_at', filters.fromDate);
-  if (filters.toDate)   query = query.lte('submitted_at', filters.toDate + 'T23:59:59');
+  if (filters.toDate) query = query.lte('submitted_at', filters.toDate + 'T23:59:59');
   if (filters.status && filters.status !== 'all' && filters.status !== 'not_started') {
     query = query.eq('status', filters.status);
   }
@@ -237,7 +676,7 @@ export async function exportToExcel(filters: ExportFilters = {}): Promise<void> 
   const sheet1Data: unknown[][] = [sheet1Headers];
   forms.forEach((f) => {
     const langs = f.skills.filter((s) => s.category === 'language');
-    const fwks  = f.skills.filter((s) => s.category === 'framework');
+    const fwks = f.skills.filter((s) => s.category === 'framework');
 
     sheet1Data.push([
       f.employee.full_name,
@@ -408,10 +847,10 @@ export async function exportSkillsMatrix(): Promise<void> {
 export async function exportSkillSettings(): Promise<void> {
   const tables = [
     { key: 'settings_certifications', sheet: 'Certifications' },
-    { key: 'settings_languages',      sheet: 'Languages' },
-    { key: 'settings_frameworks',     sheet: 'Frameworks' },
-    { key: 'settings_tools',          sheet: 'Tools' },
-    { key: 'settings_databases',      sheet: 'Databases' },
+    { key: 'settings_languages', sheet: 'Languages' },
+    { key: 'settings_frameworks', sheet: 'Frameworks' },
+    { key: 'settings_tools', sheet: 'Tools' },
+    { key: 'settings_databases', sheet: 'Databases' },
   ] as const;
 
   const results = await Promise.all(
@@ -425,7 +864,6 @@ export async function exportSkillSettings(): Promise<void> {
 
   tables.forEach(({ sheet }, i) => {
     const rows = (results[i].data ?? []) as Array<{ name: string; is_active: boolean }>;
-    const headers = [sheet.slice(0, -1) === sheet ? sheet : sheet.replace(/s$/, ''), 'Status'];
     const data: unknown[][] = [[sheet, 'Status']];
     rows.forEach((row) => {
       data.push([row.name, row.is_active ? 'Active' : 'Inactive']);

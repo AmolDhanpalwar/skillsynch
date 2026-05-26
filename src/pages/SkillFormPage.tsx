@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useNavigate } from 'react-router-dom';
-import { Save, ArrowRight, ArrowLeft, Loader2, CheckCircle2, X, ShieldCheck, RotateCcw } from 'lucide-react';
+import { Save, ArrowRight, ArrowLeft, Loader2, CheckCircle2, X, ShieldCheck, RotateCcw, Download } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
 import StepIndicator from '../components/form/StepIndicator';
 import StatusBadge from '../components/form/StatusBadge';
@@ -15,6 +15,7 @@ import Step4Plans from './form/Step4Plans';
 import { FormProvider, useFormContext } from '../context/FormContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabaseClient';
+import { exportSkillAssessmentReport } from '../lib/exportService';
 import {
   makeStep1Schema,
   DRAFT_KEY,
@@ -150,6 +151,7 @@ function SkillFormInner() {
   const [toastMsg, setToastMsg] = useState('Draft saved');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isInitializing = useRef(true);
@@ -533,6 +535,18 @@ function SkillFormInner() {
     navigate('/dashboard', { state: { toast: 'Form submitted for manager review!' } });
   }
 
+  async function handleDownloadReport() {
+    if (!formId) return;
+    setDownloading(true);
+    try {
+      await exportSkillAssessmentReport(formId);
+    } catch (err) {
+      showToast('Failed to generate report. Please try again.');
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   const isLastStep = currentStep === FORM_STEPS.length;
 
   const nextLabel =
@@ -556,7 +570,19 @@ function SkillFormInner() {
               Complete all steps to submit your skill profile for review.
             </p>
           </div>
-          <StatusBadge status={formStatus} />
+          <div className="flex items-center gap-2">
+            {isApproved && (
+              <button
+                onClick={handleDownloadReport}
+                disabled={downloading}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-emerald-200 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 text-xs font-semibold font-heading transition-colors disabled:opacity-50"
+              >
+                {downloading ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                {downloading ? 'Generating…' : 'Download Report'}
+              </button>
+            )}
+            <StatusBadge status={formStatus} />
+          </div>
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm shadow-gray-200/80 border border-gray-100 overflow-hidden">

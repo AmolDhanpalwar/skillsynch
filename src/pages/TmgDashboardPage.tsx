@@ -20,6 +20,7 @@ import ExportModal from '../components/export/ExportModal';
 import Toast from '../components/form/Toast';
 import { SkeletonTableRows } from '../components/ui/Skeleton';
 import { supabase } from '../lib/supabaseClient';
+import { exportSkillAssessmentReport } from '../lib/exportService';
 import type { FormStatus } from '../types';
 
 interface EmployeeRow {
@@ -260,6 +261,7 @@ export default function TmgDashboardPage() {
   const [managerFilter, setManagerFilter] = useState('all');
   const [showExportModal, setShowExportModal] = useState(false);
   const [changingManagerFor, setChangingManagerFor] = useState<EmployeeRow | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
 
@@ -267,6 +269,17 @@ export default function TmgDashboardPage() {
     setToastMsg(msg);
     setToastVisible(true);
     setTimeout(() => setToastVisible(false), 3000);
+  }
+
+  async function handleDownloadReport(formId: string) {
+    setDownloadingId(formId);
+    try {
+      await exportSkillAssessmentReport(formId);
+    } catch (err) {
+      showToast('Failed to generate report. Please try again.');
+    } finally {
+      setDownloadingId(null);
+    }
   }
 
   useEffect(() => {
@@ -521,6 +534,20 @@ export default function TmgDashboardPage() {
                           </td>
                           <td className="px-5 py-3.5">
                             <div className="flex items-center gap-2 justify-end">
+                              {row.form_status === 'approved' && row.form_id && (
+                                <button
+                                  onClick={() => handleDownloadReport(row.form_id!)}
+                                  disabled={downloadingId === row.form_id}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-xs font-semibold font-heading text-emerald-600 hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                                >
+                                  {downloadingId === row.form_id ? (
+                                    <Loader2 size={12} className="animate-spin" />
+                                  ) : (
+                                    <Download size={12} />
+                                  )}
+                                  {downloadingId === row.form_id ? 'Generating…' : 'Download'}
+                                </button>
+                              )}
                               {row.form_id && (
                                 <button
                                   onClick={() => navigate(`/inbox/review/${row.form_id}`)}

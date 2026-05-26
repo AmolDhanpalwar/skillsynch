@@ -17,6 +17,7 @@ import {
   Eye,
   UserCog,
   Search,
+  Download,
 } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
 import StepIndicator from '../components/form/StepIndicator';
@@ -28,6 +29,7 @@ import Step3AdditionalManager from './form/Step3AdditionalManager';
 import Step3CertificationsManager from './form/Step3CertificationsManager';
 import Step4PlansManager from './form/Step4PlansManager';
 import { supabase } from '../lib/supabaseClient';
+import { exportSkillAssessmentReport } from '../lib/exportService';
 import { useAuth } from '../context/AuthContext';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -438,6 +440,7 @@ export default function ManagerReviewPage() {
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [showChangeManagerModal, setShowChangeManagerModal] = useState(false);
   const [actioning, setActioning] = useState(false);
+  const [saving, setSavingState] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
 
   const [toastVisible, setToastVisible] = useState(false);
@@ -669,6 +672,18 @@ export default function ManagerReviewPage() {
     navigate('/inbox', { state: { toast: `Form returned to ${employeeData.full_name} for revision.` } });
   }
 
+  async function handleDownloadReport() {
+    if (!formId) return;
+    setSavingState(true);
+    try {
+      await exportSkillAssessmentReport(formId);
+    } catch (err) {
+      showToast('Failed to generate report. Please try again.');
+    } finally {
+      setSavingState(false);
+    }
+  }
+
   const isLastStep = currentStep === FORM_STEPS.length;
 
   if (loading) {
@@ -703,6 +718,16 @@ export default function ManagerReviewPage() {
               </p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
+              {isApproved && (
+                <button
+                  onClick={handleDownloadReport}
+                  disabled={saving}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-emerald-200 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 text-xs font-semibold font-heading transition-colors disabled:opacity-50"
+                >
+                  {saving ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                  {saving ? 'Generating…' : 'Download Report'}
+                </button>
+              )}
               {isTmg && (
                 <button
                   onClick={() => setShowChangeManagerModal(true)}
