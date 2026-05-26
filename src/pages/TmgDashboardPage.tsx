@@ -14,6 +14,8 @@ import {
   Download,
   UserCog,
   X,
+  AlertTriangle,
+  RefreshCw,
 } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
 import ExportModal from '../components/export/ExportModal';
@@ -21,6 +23,7 @@ import Toast from '../components/form/Toast';
 import { SkeletonTableRows } from '../components/ui/Skeleton';
 import { supabase } from '../lib/supabaseClient';
 import { exportSkillAssessmentReport } from '../lib/exportService';
+import { useCycle } from '../context/CycleContext';
 import type { FormStatus } from '../types';
 
 interface EmployeeRow {
@@ -253,6 +256,7 @@ function ChangeManagerModal({ employee, onClose, onChanged }: ChangeManagerModal
 
 export default function TmgDashboardPage() {
   const navigate = useNavigate();
+  const { activeCycle } = useCycle();
   const [rows, setRows] = useState<EmployeeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -381,6 +385,8 @@ export default function TmgDashboardPage() {
     { value: 'approved',       label: 'Approved' },
   ];
 
+  const incompleteCount = rows.filter((r) => r.form_status !== 'approved').length;
+
   return (
     <>
       <AppShell>
@@ -398,6 +404,52 @@ export default function TmgDashboardPage() {
               Export to Excel
             </button>
           </div>
+
+          {!activeCycle ? (
+            <div className="flex items-start gap-3 px-5 py-4 rounded-2xl border border-amber-200 bg-amber-50 text-amber-800 text-sm font-body">
+              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold font-heading">No active review cycle</p>
+                <p className="text-xs mt-0.5">
+                  Go to <button onClick={() => navigate('/cycles')} className="underline font-semibold hover:text-amber-900 transition-colors">Cycles</button> to create and trigger a new assessment cycle.
+                </p>
+              </div>
+            </div>
+          ) : incompleteCount > 0 ? (
+            <div className="flex items-start gap-3 px-5 py-4 rounded-2xl border border-red-200 bg-red-50 text-red-800 text-sm font-body">
+              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="font-semibold font-heading">
+                  {incompleteCount} incomplete assessment{incompleteCount !== 1 ? 's' : ''} — current cycle: {activeCycle.name}
+                </p>
+                <p className="text-xs mt-0.5">
+                  These employees have not yet had their assessments approved. A new cycle cannot be started until all assessments are complete.
+                </p>
+              </div>
+              <button
+                onClick={() => navigate('/cycles')}
+                className="flex items-center gap-1.5 shrink-0 px-3 py-1.5 rounded-xl border border-red-300 bg-red-100 hover:bg-red-200 text-xs font-semibold font-heading transition-colors"
+              >
+                <RefreshCw size={12} />
+                View Cycles
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-start gap-3 px-5 py-4 rounded-2xl border border-emerald-200 bg-emerald-50 text-emerald-800 text-sm font-body">
+              <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold font-heading">Active cycle: {activeCycle.name}</p>
+                <p className="text-xs mt-0.5">All assessments approved. Cycle can be closed when ready.</p>
+              </div>
+              <button
+                onClick={() => navigate('/cycles')}
+                className="flex items-center gap-1.5 shrink-0 ml-auto px-3 py-1.5 rounded-xl border border-emerald-300 bg-emerald-100 hover:bg-emerald-200 text-xs font-semibold font-heading transition-colors"
+              >
+                <RefreshCw size={12} />
+                Manage
+              </button>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {STAT_CARDS.map((s) => (

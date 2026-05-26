@@ -1,6 +1,46 @@
 export type UserRole = 'employee' | 'manager' | 'tmg' | 'management' | 'admin';
 export type FormStatus = 'draft' | 'pending_review' | 'returned' | 'approved';
 export type SkillCategory = 'language' | 'framework';
+export type CycleType = 'mid_year' | 'full_year' | 'custom';
+export type CycleStatus = 'draft' | 'active' | 'closed';
+
+export interface ReviewCycle {
+  id: string;
+  name: string;
+  cycle_type: CycleType;
+  status: CycleStatus;
+  employee_deadline: string | null;
+  manager_deadline: string | null;
+  triggered_at: string | null;
+  closed_at: string | null;
+  created_by: string | null;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SkillFormVersion {
+  id: string;
+  cycle_id: string;
+  form_id: string | null;
+  employee_id: string;
+  snapshot: Record<string, unknown>;
+  approved_at: string;
+  approved_by: string | null;
+  created_at: string;
+}
+
+export const CYCLE_TYPE_LABELS: Record<CycleType, string> = {
+  mid_year:  'Mid Year',
+  full_year: 'Full Year',
+  custom:    'Custom',
+};
+
+export const CYCLE_STATUS_CONFIG: Record<CycleStatus, { label: string; badgeClass: string }> = {
+  draft:  { label: 'Draft',  badgeClass: 'bg-gray-100 text-gray-600' },
+  active: { label: 'Active', badgeClass: 'bg-emerald-100 text-emerald-700' },
+  closed: { label: 'Closed', badgeClass: 'bg-slate-100 text-slate-600' },
+};
 
 export interface UserProfile {
   id: string;

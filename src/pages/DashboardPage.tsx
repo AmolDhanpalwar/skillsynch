@@ -10,6 +10,8 @@ import {
   ChevronRight,
   FileText,
   Pencil,
+  Calendar,
+  AlertTriangle,
 } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
 import Toast from '../components/form/Toast';
@@ -17,7 +19,8 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
-import { getInitials } from '../types';
+import { useCycle } from '../context/CycleContext';
+import { getInitials, CYCLE_TYPE_LABELS } from '../types';
 import type { FormStatus } from '../types';
 import type { Notification } from '../context/NotificationContext';
 
@@ -79,8 +82,14 @@ function calcSteps(form: SkillForm | null) {
   ];
 }
 
+function daysUntil(iso: string | null): number | null {
+  if (!iso) return null;
+  return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
+}
+
 export default function DashboardPage() {
   const { user } = useAuth();
+  const { activeCycle } = useCycle();
   const navigate = useNavigate();
   const location = useLocation();
   const { notifications, markRead } = useNotifications();
@@ -123,6 +132,10 @@ export default function DashboardPage() {
   const statusCfg = form ? STATUS_CONFIG[form.status] : null;
   const isEmployee = user?.role === 'employee';
 
+  const empDaysLeft = daysUntil(activeCycle?.employee_deadline ?? null);
+  const empDeadlinePassed = empDaysLeft !== null && empDaysLeft < 0;
+  const empDeadlineUrgent = empDaysLeft !== null && empDaysLeft >= 0 && empDaysLeft <= 3;
+
   async function handleNotifClick(n: Notification) {
     if (!n.is_read) await markRead(n.id);
     navigate('/form');
@@ -138,6 +151,49 @@ export default function DashboardPage() {
   return (
     <AppShell>
       <div className="max-w-3xl mx-auto space-y-6">
+
+        {activeCycle && (
+          <div className={`flex items-start gap-3 px-5 py-4 rounded-2xl border text-sm font-body
+            ${isEmployee && empDeadlinePassed
+              ? 'bg-red-50 border-red-200 text-red-800'
+              : isEmployee && empDeadlineUrgent
+                ? 'bg-amber-50 border-amber-200 text-amber-800'
+                : 'bg-sky-50 border-sky-200 text-sky-800'
+            }`}
+          >
+            {isEmployee && (empDeadlinePassed || empDeadlineUrgent) ? (
+              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+            ) : (
+              <Calendar size={16} className="shrink-0 mt-0.5" />
+            )}
+            <div>
+              <p className="font-semibold font-heading">
+                {activeCycle.name}
+                <span className="ml-2 text-[11px] font-normal opacity-70">{CYCLE_TYPE_LABELS[activeCycle.cycle_type]}</span>
+              </p>
+              {isEmployee ? (
+                <p className="text-xs mt-0.5">
+                  {activeCycle.employee_deadline
+                    ? empDeadlinePassed
+                      ? `Submission deadline passed ${Math.abs(empDaysLeft!)} day${Math.abs(empDaysLeft!) !== 1 ? 's' : ''} ago`
+                      : empDaysLeft === 0
+                        ? 'Submission deadline is today'
+                        : `Submission deadline: ${new Date(activeCycle.employee_deadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} — ${empDaysLeft} day${empDaysLeft !== 1 ? 's' : ''} remaining`
+                    : 'No employee deadline set'}
+                </p>
+              ) : (
+                <p className="text-xs mt-0.5 opacity-80">Active review cycle — check Inbox for pending submissions</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {!activeCycle && !isEmployee && (
+          <div className="flex items-start gap-3 px-5 py-4 rounded-2xl border border-amber-200 bg-amber-50 text-amber-800 text-sm font-body">
+            <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+            <p><span className="font-semibold font-heading">No active cycle.</span> Ask your TMG to trigger a new assessment cycle.</p>
+          </div>
+        )}
 
         <div className="relative bg-gradient-to-br from-primary-500 to-primary-600 rounded-2xl p-6 md:p-8 overflow-hidden">
           <div className="absolute top-0 right-0 w-56 h-56 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 pointer-events-none" />

@@ -12,6 +12,7 @@ import {
   HelpCircle,
   Settings,
   UserCog,
+  RefreshCw,
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Logo from './Logo';
@@ -46,10 +47,11 @@ const navSections: NavSection[] = [
     heading: 'Analytics',
     roles: ['manager', 'tmg', 'management', 'admin'],
     items: [
-      { icon: TrendingUp, label: 'TMG Dashboard', path: '/tmg-dashboard', roles: ['tmg', 'admin'] },
-      { icon: Activity,   label: 'Form Status',   path: '/status',        roles: ['tmg', 'admin'] },
-      { icon: BarChart2,  label: 'Reports',        path: '/reports',       roles: ['management', 'admin'] },
-      { icon: Star,       label: 'Skills Matrix', path: '/skills-matrix', roles: ['manager', 'tmg', 'management', 'admin'] },
+      { icon: TrendingUp,  label: 'TMG Dashboard', path: '/tmg-dashboard', roles: ['tmg', 'admin'] },
+      { icon: RefreshCw,   label: 'Cycles',        path: '/cycles',        roles: ['tmg', 'admin'] },
+      { icon: Activity,    label: 'Form Status',   path: '/status',        roles: ['tmg', 'admin'] },
+      { icon: BarChart2,   label: 'Reports',       path: '/reports',       roles: ['management', 'admin'] },
+      { icon: Star,        label: 'Skills Matrix', path: '/skills-matrix', roles: ['manager', 'tmg', 'management', 'admin'] },
     ],
   },
   {

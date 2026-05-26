@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import { NotificationProvider } from './context/NotificationContext';
+import { CycleProvider } from './context/CycleContext';
 import PrivateRoute from './components/auth/PrivateRoute';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
@@ -17,6 +18,7 @@ import PowerBiHelpPage from './pages/PowerBiHelpPage';
 import SettingsPage from './pages/SettingsPage';
 import EmpSettingsPage from './pages/EmpSettingsPage';
 import SkillsMatrixPage from './pages/SkillsMatrixPage';
+import CyclesPage from './pages/CyclesPage';
 import { seedUsersIfEmpty } from './lib/seedUsers';
 
 function RoleRoot() {
@@ -160,6 +162,14 @@ function AppRoutes() {
             </PrivateRoute>
           }
         />
+        <Route
+          path="/cycles"
+          element={
+            <PrivateRoute allowedRoles={['tmg', 'admin']}>
+              <CyclesPage />
+            </PrivateRoute>
+          }
+        />
         <Route path="*" element={<RoleRoot />} />
       </Routes>
     </PageTransition>
@@ -170,11 +180,13 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <NotificationProvider>
-          <ToastProvider>
-            <AppRoutes />
-          </ToastProvider>
-        </NotificationProvider>
+        <CycleProvider>
+          <NotificationProvider>
+            <ToastProvider>
+              <AppRoutes />
+            </ToastProvider>
+          </NotificationProvider>
+        </CycleProvider>
       </AuthProvider>
     </BrowserRouter>
   );

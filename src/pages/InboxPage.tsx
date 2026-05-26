@@ -11,6 +11,8 @@ import {
   ChevronRight,
   Loader2,
   Download,
+  AlertTriangle,
+  Calendar,
 } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
 import Toast from '../components/form/Toast';
@@ -18,6 +20,7 @@ import { SkeletonListItem } from '../components/ui/Skeleton';
 import { supabase } from '../lib/supabaseClient';
 import { exportSkillAssessmentReport } from '../lib/exportService';
 import { useAuth } from '../context/AuthContext';
+import { useCycle } from '../context/CycleContext';
 import type { FormStatus } from '../types';
 
 interface TeamForm {
@@ -86,8 +89,15 @@ function EmptyState({ filtered }: { filtered: boolean }) {
   );
 }
 
+function daysUntil(iso: string | null): number | null {
+  if (!iso) return null;
+  const diff = new Date(iso).getTime() - Date.now();
+  return Math.ceil(diff / 86_400_000);
+}
+
 export default function InboxPage() {
   const { user } = useAuth();
+  const { activeCycle } = useCycle();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -162,9 +172,42 @@ export default function InboxPage() {
     }
   }
 
+  const managerDaysLeft = daysUntil(activeCycle?.manager_deadline ?? null);
+  const managerDeadlinePassed = managerDaysLeft !== null && managerDaysLeft < 0;
+  const managerDeadlineUrgent = managerDaysLeft !== null && managerDaysLeft >= 0 && managerDaysLeft <= 3;
+
   return (
     <AppShell>
       <div className="max-w-4xl mx-auto space-y-6">
+        {activeCycle && (
+          <div className={`flex items-start gap-3 px-5 py-4 rounded-2xl border text-sm font-body
+            ${managerDeadlinePassed
+              ? 'bg-red-50 border-red-200 text-red-800'
+              : managerDeadlineUrgent
+                ? 'bg-amber-50 border-amber-200 text-amber-800'
+                : 'bg-sky-50 border-sky-200 text-sky-800'
+            }`}
+          >
+            {managerDeadlinePassed || managerDeadlineUrgent ? (
+              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+            ) : (
+              <Calendar size={16} className="shrink-0 mt-0.5" />
+            )}
+            <div>
+              <p className="font-semibold font-heading">{activeCycle.name}</p>
+              <p className="text-xs mt-0.5">
+                {activeCycle.manager_deadline
+                  ? managerDeadlinePassed
+                    ? `Manager review deadline passed ${Math.abs(managerDaysLeft!)} day${Math.abs(managerDaysLeft!) !== 1 ? 's' : ''} ago`
+                    : managerDaysLeft === 0
+                      ? 'Manager review deadline is today'
+                      : `Manager review deadline: ${new Date(activeCycle.manager_deadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} — ${managerDaysLeft} day${managerDaysLeft !== 1 ? 's' : ''} remaining`
+                  : 'No manager deadline set for this cycle'}
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-3">

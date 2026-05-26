@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useNavigate } from 'react-router-dom';
-import { Save, ArrowRight, ArrowLeft, Loader2, CheckCircle2, X, ShieldCheck, RotateCcw, Download } from 'lucide-react';
+import { Save, ArrowRight, ArrowLeft, Loader2, CheckCircle2, X, ShieldCheck, RotateCcw, Download, Calendar, AlertTriangle, History, ChevronDown } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
 import StepIndicator from '../components/form/StepIndicator';
 import StatusBadge from '../components/form/StatusBadge';
@@ -14,8 +14,11 @@ import Step3Certifications from './form/Step3Certifications';
 import Step4Plans from './form/Step4Plans';
 import { FormProvider, useFormContext } from '../context/FormContext';
 import { useAuth } from '../context/AuthContext';
+import { useCycle } from '../context/CycleContext';
 import { supabase } from '../lib/supabaseClient';
 import { exportSkillAssessmentReport } from '../lib/exportService';
+import type { SkillFormVersion } from '../types';
+import { CYCLE_TYPE_LABELS } from '../types';
 import {
   makeStep1Schema,
   DRAFT_KEY,
@@ -142,6 +145,7 @@ function ReturnedBanner() {
 
 function SkillFormInner() {
   const { user, refreshProfile } = useAuth();
+  const { activeCycle } = useCycle();
   const navigate = useNavigate();
   const { currentStep, setCurrentStep, formId, setFormId, formStatus, setFormStatus } =
     useFormContext();
@@ -152,6 +156,8 @@ function SkillFormInner() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [versions, setVersions] = useState<(SkillFormVersion & { cycle_name?: string })[]>([]);
+  const [showVersions, setShowVersions] = useState(false);
 
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isInitializing = useRef(true);
@@ -199,6 +205,19 @@ function SkillFormInner() {
     if (!user) return;
 
     async function init() {
+      // Load previous versions
+      const { data: versionData } = await supabase
+        .from('skill_form_versions')
+        .select('*, review_cycles(name)')
+        .eq('employee_id', user!.id)
+        .order('approved_at', { ascending: false });
+      if (versionData) {
+        setVersions(versionData.map((v) => ({
+          ...v,
+          cycle_name: (v.review_cycles as { name: string } | null)?.name ?? '—',
+        })));
+      }
+
       const existingFormRes = await supabase
         .from('skill_forms')
         .select('*')
@@ -433,6 +452,7 @@ function SkillFormInner() {
       upskilling_plan: step4.upskilling_plan,
       manager_expectation_plan: step4.manager_expectation_plan,
       ...(statusOverride === 'pending_review' ? { submitted_at: new Date().toISOString() } : {}),
+      ...(activeCycle ? { cycle_id: activeCycle.id } : {}),
       updated_at: new Date().toISOString(),
     };
 
@@ -560,6 +580,10 @@ function SkillFormInner() {
       ? 'Next: Plans'
       : '';
 
+  const empDaysLeft = activeCycle?.employee_deadline
+    ? Math.ceil((new Date(activeCycle.employee_deadline).getTime() - Date.now()) / 86_400_000)
+    : null;
+
   return (
     <>
       <div className="max-w-3xl mx-auto space-y-6">
@@ -584,6 +608,95 @@ function SkillFormInner() {
             <StatusBadge status={formStatus} />
           </div>
         </div>
+
+        {/* No active cycle — employee cannot submit */}
+        {!activeCycle && !isApproved && (
+          <div className="flex items-start gap-3 px-5 py-4 bg-amber-50 border border-amber-200 rounded-2xl">
+            <AlertTriangle size={18} className="text-amber-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold font-heading text-amber-800">No active review cycle</p>
+              <p className="text-xs text-amber-700 font-body mt-0.5">
+                You can save a draft, but submissions are disabled until TMG starts a review cycle.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Active cycle banner */}
+        {activeCycle && (
+          <div className="flex items-center gap-3 px-5 py-3 bg-primary-50 border border-primary-100 rounded-2xl">
+            <Calendar size={15} className="text-primary-500 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <span className="text-xs font-semibold font-heading text-primary-700">
+                {activeCycle.name}
+                <span className="ml-2 px-1.5 py-0.5 rounded-full bg-primary-100 text-primary-600 text-[9px] uppercase tracking-wider">
+                  {CYCLE_TYPE_LABELS[activeCycle.cycle_type]}
+                </span>
+              </span>
+              {activeCycle.employee_deadline && (
+                <span className={`ml-3 text-xs font-body ${
+                  empDaysLeft !== null && empDaysLeft < 0 ? 'text-red-600 font-semibold' :
+                  empDaysLeft !== null && empDaysLeft <= 3 ? 'text-red-500 font-semibold' :
+                  empDaysLeft !== null && empDaysLeft <= 7 ? 'text-amber-600' : 'text-primary-500'
+                }`}>
+                  Deadline: {new Date(activeCycle.employee_deadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  {empDaysLeft !== null && (
+                    <span className="ml-1">
+                      ({empDaysLeft < 0 ? `${Math.abs(empDaysLeft)}d overdue` : empDaysLeft === 0 ? 'due today' : `${empDaysLeft}d left`})
+                    </span>
+                  )}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Previous assessments */}
+        {versions.length > 0 && (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <button
+              onClick={() => setShowVersions((v) => !v)}
+              className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-gray-50/60 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <History size={15} className="text-gray-400" />
+                <span className="font-heading font-semibold text-sm text-gray-700">Previous Assessments</span>
+                <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 text-[10px] font-semibold font-heading">{versions.length}</span>
+              </div>
+              <ChevronDown size={14} className={`text-gray-300 transition-transform duration-200 ${showVersions ? 'rotate-180' : ''}`} />
+            </button>
+            {showVersions && (
+              <div className="border-t border-gray-100 divide-y divide-gray-50">
+                {versions.map((v) => {
+                  const snap = v.snapshot as Record<string, unknown>;
+                  return (
+                    <div key={v.id} className="flex items-center gap-4 px-5 py-3.5">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-semibold font-heading text-gray-800">{v.cycle_name}</span>
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-semibold font-heading">Approved</span>
+                        </div>
+                        <p className="text-xs text-gray-400 font-body mt-0.5">
+                          Approved {new Date(v.approved_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          {snap?.designation ? ` · ${snap.designation}` : ''}
+                        </p>
+                      </div>
+                      {v.form_id && (
+                        <button
+                          onClick={() => exportSkillAssessmentReport(v.form_id!)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 text-xs font-semibold font-heading transition-colors"
+                        >
+                          <Download size={11} />
+                          PDF
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="bg-white rounded-2xl shadow-sm shadow-gray-200/80 border border-gray-100 overflow-hidden">
           {isApproved && <ApprovedBanner />}
@@ -682,7 +795,9 @@ function SkillFormInner() {
               !isApproved && !isLocked && (
                 <button
                   onClick={() => setShowConfirmModal(true)}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold font-heading transition-all active:scale-[0.98]"
+                  disabled={!activeCycle}
+                  title={!activeCycle ? 'No active review cycle — wait for TMG to open a cycle' : undefined}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold font-heading transition-all active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <CheckCircle2 size={15} />
                   {isReturned ? 'Resubmit for Review' : 'Submit for Manager Review'}

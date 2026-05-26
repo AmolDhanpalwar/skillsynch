@@ -31,6 +31,7 @@ import Step4PlansManager from './form/Step4PlansManager';
 import { supabase } from '../lib/supabaseClient';
 import { exportSkillAssessmentReport } from '../lib/exportService';
 import { useAuth } from '../context/AuthContext';
+import { useCycle } from '../context/CycleContext';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
@@ -416,6 +417,7 @@ export default function ManagerReviewPage() {
   const { formId } = useParams<{ formId: string }>();
   const navigate = useNavigate();
   const { user, refreshProfile } = useAuth();
+  const { activeCycle } = useCycle();
 
   const [loading, setLoading] = useState(true);
   const [currentStep, setCurrentStep] = useState(1);
@@ -641,11 +643,34 @@ export default function ManagerReviewPage() {
     const ok = await saveManagerInputs('approved');
     if (!ok) { setActioning(false); showToast('Approval failed — please retry.'); return; }
     setFormStatus('approved');
+
+    // Write immutable version snapshot
+    if (employeeId && activeCycle) {
+      const { data: formSnap } = await supabase
+        .from('skill_forms')
+        .select('*, skill_items(*)')
+        .eq('id', formId!)
+        .maybeSingle();
+
+      if (formSnap) {
+        await supabase.from('skill_form_versions').upsert({
+          cycle_id: activeCycle.id,
+          form_id: formId,
+          employee_id: employeeId,
+          snapshot: formSnap as unknown as Record<string, unknown>,
+          approved_at: new Date().toISOString(),
+          approved_by: user?.id ?? null,
+        }, { onConflict: 'employee_id,cycle_id', ignoreDuplicates: false });
+      }
+    }
+
     if (employeeId) {
       await supabase.from('notifications').insert({
         user_id: employeeId,
         type: 'form_approved',
-        message: 'Your Skill Profile has been approved.',
+        message: activeCycle
+          ? `Your Skill Profile for "${activeCycle.name}" has been approved.`
+          : 'Your Skill Profile has been approved.',
         form_id: formId,
       });
     }
