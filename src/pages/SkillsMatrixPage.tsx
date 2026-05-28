@@ -799,6 +799,18 @@ export default function SkillsMatrixPage() {
 
   const isViewingHistory = selectedCycleId !== 'current';
 
+  // When there's no active cycle, default to the most recently closed cycle
+  useEffect(() => {
+    if (!activeCycle) {
+      const lastClosed = allCycles
+        .filter((c) => c.status === 'closed')
+        .sort((a, b) => new Date(b.closed_at ?? b.created_at).getTime() - new Date(a.closed_at ?? a.created_at).getTime())[0];
+      if (lastClosed) setSelectedCycleId(lastClosed.id);
+    } else {
+      setSelectedCycleId('current');
+    }
+  }, [activeCycle, allCycles]);
+
   async function handleExport() {
     setExporting(true);
     try { await exportSkillsMatrix(); } catch (err) { console.error(err); } finally { setExporting(false); }

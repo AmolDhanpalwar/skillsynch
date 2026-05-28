@@ -20,6 +20,10 @@ interface Props {
 export function buildCycleOptions(cycles: ReviewCycle[], activeCycle: ReviewCycle | null): CycleOption[] {
   const opts: CycleOption[] = [];
 
+  const closed = cycles
+    .filter((c) => c.status === 'closed')
+    .sort((a, b) => new Date(b.closed_at ?? b.created_at).getTime() - new Date(a.closed_at ?? a.created_at).getTime());
+
   if (activeCycle) {
     opts.push({
       id: 'current',
@@ -27,15 +31,22 @@ export function buildCycleOptions(cycles: ReviewCycle[], activeCycle: ReviewCycl
       sublabel: `${CYCLE_TYPE_LABELS[activeCycle.cycle_type]} · Current`,
       isCurrent: true,
     });
+  } else if (closed.length > 0) {
+    // No active cycle (e.g. suspended) — default to most recently closed
+    const latest = closed[0];
+    opts.push({
+      id: latest.id,
+      label: latest.name,
+      sublabel: `${CYCLE_TYPE_LABELS[latest.cycle_type]} · Last Closed`,
+      isCurrent: true,
+    });
   } else {
-    opts.push({ id: 'current', label: 'Current Cycle', sublabel: 'No active cycle', isCurrent: true });
+    opts.push({ id: 'current', label: 'No Active Cycle', sublabel: 'Activate a cycle to begin', isCurrent: true });
   }
 
-  const closed = cycles
-    .filter((c) => c.status === 'closed')
-    .sort((a, b) => new Date(b.closed_at ?? b.created_at).getTime() - new Date(a.closed_at ?? a.created_at).getTime());
-
   closed.forEach((c) => {
+    // Skip the one already shown as the default when no active cycle
+    if (!activeCycle && opts[0]?.id === c.id) return;
     opts.push({
       id: c.id,
       label: c.name,

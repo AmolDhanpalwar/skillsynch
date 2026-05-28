@@ -264,6 +264,18 @@ export default function TmgDashboardPage() {
   const [snapshotRows, setSnapshotRows] = useState<EmployeeRow[]>([]);
   const [loadingSnapshot, setLoadingSnapshot] = useState(false);
   const [search, setSearch] = useState('');
+
+  // When there's no active cycle, default to the most recently closed cycle
+  useEffect(() => {
+    if (!activeCycle) {
+      const lastClosed = allCycles
+        .filter((c) => c.status === 'closed')
+        .sort((a, b) => new Date(b.closed_at ?? b.created_at).getTime() - new Date(a.closed_at ?? a.created_at).getTime())[0];
+      if (lastClosed) setSelectedCycleId(lastClosed.id);
+    } else {
+      setSelectedCycleId('current');
+    }
+  }, [activeCycle, allCycles]);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [gradeFilter, setGradeFilter] = useState('all');
   const [managerFilter, setManagerFilter] = useState('all');
