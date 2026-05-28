@@ -25,9 +25,13 @@ import StatusBadge from '../components/form/StatusBadge';
 import Toast from '../components/form/Toast';
 import Step1Profile from './form/Step1Profile';
 import Step2SkillsManager from './form/Step2SkillsManager';
+import type { Step2SkillsManagerHandle } from './form/Step2SkillsManager';
 import Step3AdditionalManager from './form/Step3AdditionalManager';
+import type { Step3AdditionalManagerHandle } from './form/Step3AdditionalManager';
 import Step3CertificationsManager from './form/Step3CertificationsManager';
+import type { Step3CertificationsManagerHandle } from './form/Step3CertificationsManager';
 import Step4PlansManager from './form/Step4PlansManager';
+import type { Step4PlansManagerHandle } from './form/Step4PlansManager';
 import { supabase } from '../lib/supabaseClient';
 import { exportSkillAssessmentReport } from '../lib/exportService';
 import { useAuth } from '../context/AuthContext';
@@ -438,6 +442,13 @@ export default function ManagerReviewPage() {
   const [step3, setStep3] = useState<Step3Values>(makeDefaultStep3);
   const [step4, setStep4] = useState<Step4Values>(makeDefaultStep4);
 
+  const step2Ref = useRef<Step2SkillsManagerHandle>(null);
+  const step3AdditionalRef = useRef<Step3AdditionalManagerHandle>(null);
+  const step3CertsRef = useRef<Step3CertificationsManagerHandle>(null);
+  const step4Ref = useRef<Step4PlansManagerHandle>(null);
+
+  const [stepErrors, setStepErrors] = useState<string[]>([]);
+
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [showChangeManagerModal, setShowChangeManagerModal] = useState(false);
@@ -572,29 +583,21 @@ export default function ManagerReviewPage() {
     setTimeout(() => setToastVisible(false), 3000);
   }
 
+  function validateCurrentStep(): string[] {
+    if (currentStep === 2) return step2Ref.current?.validate() ?? [];
+    if (currentStep === 3) return step3AdditionalRef.current?.validate() ?? [];
+    if (currentStep === 4) return step3CertsRef.current?.validate() ?? [];
+    if (currentStep === 5) return step4Ref.current?.validate() ?? [];
+    return [];
+  }
+
   function validateBeforeApprove(): string[] {
-    const errors: string[] = [];
-
-    const langsMissing = step2.languages.filter((r) => r.name.trim() && r.manager_rating === null);
-    if (langsMissing.length > 0) {
-      errors.push(`Manager rating missing for ${langsMissing.length} language${langsMissing.length > 1 ? 's' : ''}: ${langsMissing.map((r) => r.name).join(', ')}`);
-    }
-
-    const framsMissing = step2.frameworks.filter((r) => r.name.trim() && r.manager_rating === null);
-    if (framsMissing.length > 0) {
-      errors.push(`Manager rating missing for ${framsMissing.length} framework${framsMissing.length > 1 ? 's' : ''}: ${framsMissing.map((r) => r.name).join(', ')}`);
-    }
-
-    const envsMissing = stepAdditional.environments.filter((r) => r.name.trim() && r.manager_rating === null);
-    if (envsMissing.length > 0) {
-      errors.push(`Manager rating missing for ${envsMissing.length} additional skill${envsMissing.length > 1 ? 's' : ''}: ${envsMissing.map((r) => r.name).join(', ')}`);
-    }
-
-    if (!step4.manager_expectation_plan.trim()) {
-      errors.push('Manager\'s Feedback & Expectation Plan (Step 5) is required before approving.');
-    }
-
-    return errors;
+    return [
+      ...(step2Ref.current?.validate() ?? []),
+      ...(step3AdditionalRef.current?.validate() ?? []),
+      ...(step3CertsRef.current?.validate() ?? []),
+      ...(step4Ref.current?.validate() ?? []),
+    ];
   }
 
   async function saveManagerInputs(statusOverride?: FormStatus) {
@@ -828,30 +831,51 @@ export default function ManagerReviewPage() {
               </div>
             </div>
 
+            {stepErrors.length > 0 && (
+              <div className="mx-6 mt-5 flex items-start gap-2.5 px-4 py-3 rounded-xl bg-red-50 border border-red-200">
+                <AlertTriangle size={15} className="text-red-500 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold font-heading text-red-700 mb-1">Complete the following before proceeding:</p>
+                  <ul className="space-y-0.5">
+                    {stepErrors.map((err, i) => (
+                      <li key={i} className="text-xs font-body text-red-600">• {err}</li>
+                    ))}
+                  </ul>
+                </div>
+                <button onClick={() => setStepErrors([])} className="shrink-0 text-red-400 hover:text-red-600 transition-colors">
+                  <X size={13} />
+                </button>
+              </div>
+            )}
+
             <div className="px-6 py-7">
               {currentStep === 1 && (
                 <EmployeeHeader form={form} formStatus={formStatus} employeeData={employeeData} />
               )}
               {currentStep === 2 && (
                 <Step2SkillsManager
+                  ref={step2Ref}
                   values={step2}
                   onChange={isViewOnly ? () => {} : setStep2}
                 />
               )}
               {currentStep === 3 && (
                 <Step3AdditionalManager
+                  ref={step3AdditionalRef}
                   values={stepAdditional}
                   onChange={isViewOnly ? () => {} : setStepAdditional}
                 />
               )}
               {currentStep === 4 && (
                 <Step3CertificationsManager
+                  ref={step3CertsRef}
                   values={step3}
                   onChange={isViewOnly ? () => {} : setStep3}
                 />
               )}
               {currentStep === 5 && (
                 <Step4PlansManager
+                  ref={step4Ref}
                   values={step4}
                   onChange={isViewOnly ? () => {} : setStep4}
                 />
@@ -879,7 +903,17 @@ export default function ManagerReviewPage() {
               )}
               {!isLastStep && (
                 <button
-                  onClick={() => { setCurrentStep(currentStep + 1); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                  onClick={() => {
+                    const errs = validateCurrentStep();
+                    if (errs.length > 0) {
+                      setStepErrors(errs);
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                      return;
+                    }
+                    setStepErrors([]);
+                    setCurrentStep(currentStep + 1);
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
                   className="ml-auto flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white text-sm font-semibold font-heading transition-all active:scale-[0.98]"
                 >
                   Next <ArrowRight size={14} />

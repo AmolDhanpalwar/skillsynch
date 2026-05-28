@@ -1,6 +1,11 @@
+import { forwardRef, useImperativeHandle } from 'react';
 import { Lock } from 'lucide-react';
 import type { SkillRow, SkillRating, SkillRatingOption, Step2Values } from '../../types/form';
 import { useSkillRatings } from '../../lib/useSkillRatings';
+
+export interface Step2SkillsManagerHandle {
+  validate: () => string[];
+}
 
 interface Step2SkillsManagerProps {
   values: Step2Values;
@@ -48,10 +53,12 @@ function EditableTextarea({
   value,
   onChange,
   locked,
+  placeholder,
 }: {
   value: string;
   onChange?: (v: string) => void;
   locked?: boolean;
+  placeholder?: string;
 }) {
   if (locked) {
     return (
@@ -72,7 +79,7 @@ function EditableTextarea({
       value={value}
       onChange={(e) => onChange?.(e.target.value)}
       rows={2}
-      placeholder="Add manager comment…"
+      placeholder={placeholder ?? 'Add manager comment… (required)'}
       className="w-full px-2.5 py-2 rounded-lg border border-amber-200 bg-amber-50 text-xs font-body text-amber-900 placeholder-amber-300 resize-none outline-none hover:border-amber-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-100 transition-colors"
     />
   );
@@ -101,10 +108,10 @@ function SkillTableManager({ rows, onChangeManagerRating, onChangeManagerComment
               </span>
             </th>
             <th className="px-4 py-3 text-[11px] font-semibold font-heading text-amber-600 uppercase tracking-wide w-[18%]">
-              Manager Rating
+              Manager Rating <span className="text-red-400 text-[10px]">*</span>
             </th>
             <th className="px-4 py-3 text-[11px] font-semibold font-heading text-amber-600 uppercase tracking-wide w-[36%]">
-              Manager Comment
+              Manager Comment <span className="text-red-400 text-[10px]">*</span>
             </th>
           </tr>
         </thead>
@@ -143,87 +150,117 @@ function SkillTableManager({ rows, onChangeManagerRating, onChangeManagerComment
   );
 }
 
-export default function Step2SkillsManager({ values, onChange }: Step2SkillsManagerProps) {
-  const { ratings: ratingOptions } = useSkillRatings();
+const Step2SkillsManager = forwardRef<Step2SkillsManagerHandle, Step2SkillsManagerProps>(
+  function Step2SkillsManagerInner({ values, onChange }, ref) {
+    const { ratings: ratingOptions } = useSkillRatings();
 
-  function updateRow(
-    category: 'languages' | 'frameworks',
-    id: string,
-    patch: Partial<SkillRow>
-  ) {
-    const updated = values[category].map((r) => (r.id === id ? { ...r, ...patch } : r));
-    onChange({ ...values, [category]: updated });
-  }
+    useImperativeHandle(ref, () => ({
+      validate() {
+        const errors: string[] = [];
 
-  return (
-    <div className="space-y-10">
-      <div className="space-y-1">
-        <h2 className="font-heading font-semibold text-base text-gray-800 flex items-center gap-2">
-          <span className="w-5 h-5 rounded-full bg-primary-100 text-primary-600 flex items-center justify-center text-[10px] font-bold">2</span>
-          Skill Taxonomy
-        </h2>
-        <p className="text-xs text-gray-400 font-body pl-7">
-          Review employee self-ratings and fill in manager ratings and comments.
-        </p>
+        const langRatingMissing = values.languages.filter((r) => r.name.trim() && r.manager_rating === null);
+        const langCommentMissing = values.languages.filter((r) => r.name.trim() && !r.manager_comment.trim());
+        const framRatingMissing = values.frameworks.filter((r) => r.name.trim() && r.manager_rating === null);
+        const framCommentMissing = values.frameworks.filter((r) => r.name.trim() && !r.manager_comment.trim());
+
+        if (langRatingMissing.length > 0)
+          errors.push(`Manager rating required for ${langRatingMissing.length} language${langRatingMissing.length > 1 ? 's' : ''}: ${langRatingMissing.map((r) => r.name).join(', ')}`);
+        if (langCommentMissing.length > 0)
+          errors.push(`Manager comment required for ${langCommentMissing.length} language${langCommentMissing.length > 1 ? 's' : ''}: ${langCommentMissing.map((r) => r.name).join(', ')}`);
+        if (framRatingMissing.length > 0)
+          errors.push(`Manager rating required for ${framRatingMissing.length} framework${framRatingMissing.length > 1 ? 's' : ''}: ${framRatingMissing.map((r) => r.name).join(', ')}`);
+        if (framCommentMissing.length > 0)
+          errors.push(`Manager comment required for ${framCommentMissing.length} framework${framCommentMissing.length > 1 ? 's' : ''}: ${framCommentMissing.map((r) => r.name).join(', ')}`);
+        if (!values.tools_manager_comment.trim())
+          errors.push('Manager comment for Tools is required');
+        if (!values.databases_manager_comment.trim())
+          errors.push('Manager comment for Databases is required');
+
+        return errors;
+      },
+    }));
+
+    function updateRow(category: 'languages' | 'frameworks', id: string, patch: Partial<SkillRow>) {
+      const updated = values[category].map((r) => (r.id === id ? { ...r, ...patch } : r));
+      onChange({ ...values, [category]: updated });
+    }
+
+    return (
+      <div className="space-y-10">
+        <div className="space-y-1">
+          <h2 className="font-heading font-semibold text-base text-gray-800 flex items-center gap-2">
+            <span className="w-5 h-5 rounded-full bg-primary-100 text-primary-600 flex items-center justify-center text-[10px] font-bold">2</span>
+            Skill Taxonomy
+          </h2>
+          <p className="text-xs text-gray-400 font-body pl-7">
+            Review employee self-ratings and fill in manager ratings and comments. All fields marked <span className="text-red-400 font-semibold">*</span> are required before proceeding.
+          </p>
+        </div>
+
+        <section>
+          <div className="flex items-center gap-2 mb-4">
+            <span className="px-2.5 py-1 rounded-lg bg-sky-50 border border-sky-100 text-sky-700 text-[11px] font-semibold font-heading uppercase tracking-wide">
+              Languages
+            </span>
+          </div>
+          <SkillTableManager
+            rows={values.languages}
+            onChangeManagerRating={(id, v) => updateRow('languages', id, { manager_rating: v })}
+            onChangeManagerComment={(id, v) => updateRow('languages', id, { manager_comment: v })}
+            ratingOptions={ratingOptions}
+          />
+        </section>
+
+        <section>
+          <div className="flex items-center gap-2 mb-4">
+            <span className="px-2.5 py-1 rounded-lg bg-teal-50 border border-teal-100 text-teal-700 text-[11px] font-semibold font-heading uppercase tracking-wide">
+              Frameworks
+            </span>
+          </div>
+          <SkillTableManager
+            rows={values.frameworks}
+            onChangeManagerRating={(id, v) => updateRow('frameworks', id, { manager_rating: v })}
+            onChangeManagerComment={(id, v) => updateRow('frameworks', id, { manager_comment: v })}
+            ratingOptions={ratingOptions}
+          />
+        </section>
+
+        <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <p className="text-sm font-semibold font-heading text-gray-700 mb-1">Tools</p>
+            <p className="text-xs font-body text-gray-500 mb-3 px-3.5 py-2.5 rounded-xl border border-gray-200 bg-gray-50">
+              {values.tools || '—'}
+            </p>
+            <div>
+              <p className="text-[11px] font-heading font-semibold text-amber-600 uppercase tracking-wide mb-1.5">
+                Manager Comment <span className="text-red-400">*</span>
+              </p>
+              <EditableTextarea
+                value={values.tools_manager_comment}
+                onChange={(v) => onChange({ ...values, tools_manager_comment: v })}
+              />
+            </div>
+          </div>
+
+          <div>
+            <p className="text-sm font-semibold font-heading text-gray-700 mb-1">Databases</p>
+            <p className="text-xs font-body text-gray-500 mb-3 px-3.5 py-2.5 rounded-xl border border-gray-200 bg-gray-50">
+              {values.databases || '—'}
+            </p>
+            <div>
+              <p className="text-[11px] font-heading font-semibold text-amber-600 uppercase tracking-wide mb-1.5">
+                Manager Comment <span className="text-red-400">*</span>
+              </p>
+              <EditableTextarea
+                value={values.databases_manager_comment}
+                onChange={(v) => onChange({ ...values, databases_manager_comment: v })}
+              />
+            </div>
+          </div>
+        </section>
       </div>
+    );
+  }
+);
 
-      <section>
-        <div className="flex items-center gap-2 mb-4">
-          <span className="px-2.5 py-1 rounded-lg bg-sky-50 border border-sky-100 text-sky-700 text-[11px] font-semibold font-heading uppercase tracking-wide">
-            Languages
-          </span>
-        </div>
-        <SkillTableManager
-          rows={values.languages}
-          onChangeManagerRating={(id, v) => updateRow('languages', id, { manager_rating: v })}
-          onChangeManagerComment={(id, v) => updateRow('languages', id, { manager_comment: v })}
-          ratingOptions={ratingOptions}
-        />
-      </section>
-
-      <section>
-        <div className="flex items-center gap-2 mb-4">
-          <span className="px-2.5 py-1 rounded-lg bg-teal-50 border border-teal-100 text-teal-700 text-[11px] font-semibold font-heading uppercase tracking-wide">
-            Frameworks
-          </span>
-        </div>
-        <SkillTableManager
-          rows={values.frameworks}
-          onChangeManagerRating={(id, v) => updateRow('frameworks', id, { manager_rating: v })}
-          onChangeManagerComment={(id, v) => updateRow('frameworks', id, { manager_comment: v })}
-          ratingOptions={ratingOptions}
-        />
-      </section>
-
-      <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div>
-          <p className="text-sm font-semibold font-heading text-gray-700 mb-1">Tools</p>
-          <p className="text-xs font-body text-gray-500 mb-3 px-3.5 py-2.5 rounded-xl border border-gray-200 bg-gray-50">
-            {values.tools || '—'}
-          </p>
-          <div>
-            <p className="text-[11px] font-heading font-semibold text-amber-600 uppercase tracking-wide mb-1.5">Manager Comment</p>
-            <EditableTextarea
-              value={values.tools_manager_comment}
-              onChange={(v) => onChange({ ...values, tools_manager_comment: v })}
-            />
-          </div>
-        </div>
-
-        <div>
-          <p className="text-sm font-semibold font-heading text-gray-700 mb-1">Databases</p>
-          <p className="text-xs font-body text-gray-500 mb-3 px-3.5 py-2.5 rounded-xl border border-gray-200 bg-gray-50">
-            {values.databases || '—'}
-          </p>
-          <div>
-            <p className="text-[11px] font-heading font-semibold text-amber-600 uppercase tracking-wide mb-1.5">Manager Comment</p>
-            <EditableTextarea
-              value={values.databases_manager_comment}
-              onChange={(v) => onChange({ ...values, databases_manager_comment: v })}
-            />
-          </div>
-        </div>
-      </section>
-    </div>
-  );
-}
+export default Step2SkillsManager;
