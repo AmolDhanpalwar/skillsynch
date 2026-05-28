@@ -1,5 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Plus, Calendar, CheckCircle2, Clock, AlertTriangle, ChevronDown, Loader2, X, Play, Lock, RotateCcw, Users, FileX, TrendingUp, CreditCard as Edit2 } from 'lucide-react';
+import {
+  Plus, Calendar, CheckCircle2, Clock, AlertTriangle, ChevronDown, Loader2, X,
+  Play, Lock, RotateCcw, Users, FileX, TrendingUp, CreditCard as Edit2,
+  Trash2, PauseCircle, Ban,
+} from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
 import { supabase } from '../lib/supabaseClient';
 import { useCycle } from '../context/CycleContext';
@@ -55,7 +59,7 @@ interface CycleProgress {
 
 interface CycleWithProgress extends ReviewCycle {
   progress: CycleProgress;
-  blockers: number; // incomplete forms from this cycle
+  blockers: number;
 }
 
 interface EmployeeRow {
@@ -68,7 +72,7 @@ interface EmployeeRow {
   cycle_id: string | null;
 }
 
-// ─── Sub-components ──────────────────────────────────────────────────────────
+// ─── Progress Bar ─────────────────────────────────────────────────────────────
 
 function ProgressBar({ progress }: { progress: CycleProgress }) {
   const total = progress.total || 1;
@@ -180,7 +184,6 @@ function CycleModal({ initial, onClose, onSaved }: CycleModalProps) {
         </div>
 
         <div className="space-y-4">
-          {/* Name */}
           <div>
             <label className="block text-xs font-semibold font-heading text-gray-600 mb-1.5">Cycle Name</label>
             <input
@@ -192,7 +195,6 @@ function CycleModal({ initial, onClose, onSaved }: CycleModalProps) {
             {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name}</p>}
           </div>
 
-          {/* Type */}
           <div>
             <label className="block text-xs font-semibold font-heading text-gray-600 mb-1.5">Cycle Type</label>
             <div className="relative">
@@ -209,12 +211,9 @@ function CycleModal({ initial, onClose, onSaved }: CycleModalProps) {
             </div>
           </div>
 
-          {/* Deadlines */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold font-heading text-gray-600 mb-1.5">
-                Employee Deadline
-              </label>
+              <label className="block text-xs font-semibold font-heading text-gray-600 mb-1.5">Employee Deadline</label>
               <input
                 type="datetime-local"
                 value={employeeDeadline}
@@ -224,9 +223,7 @@ function CycleModal({ initial, onClose, onSaved }: CycleModalProps) {
               {errors.employeeDeadline && <p className="text-xs text-red-500 mt-1">{errors.employeeDeadline}</p>}
             </div>
             <div>
-              <label className="block text-xs font-semibold font-heading text-gray-600 mb-1.5">
-                Manager Deadline
-              </label>
+              <label className="block text-xs font-semibold font-heading text-gray-600 mb-1.5">Manager Deadline</label>
               <input
                 type="datetime-local"
                 value={managerDeadline}
@@ -237,7 +234,6 @@ function CycleModal({ initial, onClose, onSaved }: CycleModalProps) {
             </div>
           </div>
 
-          {/* Notes */}
           <div>
             <label className="block text-xs font-semibold font-heading text-gray-600 mb-1.5">Notes (optional)</label>
             <textarea
@@ -261,6 +257,116 @@ function CycleModal({ initial, onClose, onSaved }: CycleModalProps) {
           >
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
             {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Cycle'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Delete Confirm Modal ─────────────────────────────────────────────────────
+
+function DeleteModal({ cycle, onConfirm, onCancel, deleting }: {
+  cycle: ReviewCycle;
+  onConfirm: () => void;
+  onCancel: () => void;
+  deleting: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onCancel} />
+      <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4">
+        <button onClick={onCancel} className="absolute right-4 top-4 w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100">
+          <X size={15} />
+        </button>
+        <div className="w-12 h-12 rounded-2xl bg-red-50 flex items-center justify-center">
+          <Trash2 size={22} className="text-red-500" />
+        </div>
+        <div>
+          <h3 className="font-heading font-bold text-gray-900 text-lg">Delete "{cycle.name}"?</h3>
+          <p className="text-sm text-gray-500 font-body mt-2 leading-relaxed">
+            This draft cycle will be permanently deleted. This action cannot be undone.
+          </p>
+        </div>
+        <div className="flex items-center gap-3 justify-end">
+          <button onClick={onCancel} disabled={deleting} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold font-heading text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50">
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={deleting}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold font-heading transition-all disabled:opacity-50"
+          >
+            {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+            {deleting ? 'Deleting…' : 'Delete Cycle'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Suspend Modal ────────────────────────────────────────────────────────────
+
+function SuspendModal({ cycle, onConfirm, onCancel, suspending }: {
+  cycle: ReviewCycle;
+  onConfirm: (reason: string) => void;
+  onCancel: () => void;
+  suspending: boolean;
+}) {
+  const [reason, setReason] = useState('');
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onCancel} />
+      <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4">
+        <button onClick={onCancel} className="absolute right-4 top-4 w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100">
+          <X size={15} />
+        </button>
+
+        <div className="w-12 h-12 rounded-2xl bg-red-50 flex items-center justify-center">
+          <PauseCircle size={22} className="text-red-500" />
+        </div>
+
+        <div>
+          <h3 className="font-heading font-bold text-gray-900 text-lg">Suspend "{cycle.name}"?</h3>
+          <p className="text-sm text-gray-500 font-body mt-2 leading-relaxed">
+            Suspending this cycle will permanently purge all employee form data created during this cycle.
+            This action <span className="font-semibold text-red-600">cannot be undone</span>.
+          </p>
+          <div className="mt-3 flex items-start gap-2.5 px-3.5 py-3 bg-red-50 rounded-xl border border-red-100">
+            <AlertTriangle size={14} className="text-red-500 shrink-0 mt-0.5" />
+            <p className="text-xs text-red-700 font-body">
+              All employee assessments in progress for this cycle will be deleted. The cycle will be hidden from all views except this admin page.
+            </p>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold font-heading text-gray-700 mb-1.5">
+            Suspension Reason <span className="text-red-500">*</span>
+          </label>
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            rows={3}
+            placeholder="Explain why this cycle is being suspended (e.g. organisational changes, incorrect setup)…"
+            className="w-full px-3.5 py-3 rounded-xl border border-gray-200 text-sm font-body text-gray-800 placeholder-gray-400 resize-none outline-none hover:border-red-300 focus:border-red-400 focus:ring-1 focus:ring-red-100 transition-colors"
+            autoFocus
+          />
+        </div>
+
+        <div className="flex items-center gap-3 justify-end">
+          <button onClick={onCancel} disabled={suspending} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold font-heading text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50">
+            Cancel
+          </button>
+          <button
+            onClick={() => onConfirm(reason)}
+            disabled={suspending || !reason.trim()}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold font-heading transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {suspending ? <Loader2 size={14} className="animate-spin" /> : <PauseCircle size={14} />}
+            {suspending ? 'Suspending…' : 'Suspend Cycle'}
           </button>
         </div>
       </div>
@@ -304,7 +410,7 @@ function ActivateModal({ cycle, blockerCount, onConfirm, onCancel, activating }:
               <div className="flex items-start gap-2 px-3 py-2.5 bg-red-50 rounded-xl border border-red-100">
                 <AlertTriangle size={14} className="text-red-500 shrink-0 mt-0.5" />
                 <p className="text-xs text-red-700 font-body">
-                  All employees must have an approved assessment before a new cycle can begin. Please complete pending reviews first.
+                  All employees must have an approved assessment before a new cycle can begin.
                 </p>
               </div>
             </div>
@@ -406,7 +512,8 @@ function DefaultersDrawer({ cycle, type, employees, onClose }: DefaultersDrawerP
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function CyclesPage() {
-  const { allCycles, activeCycle, loading, refresh } = useCycle();
+  const { adminCycles, activeCycle, loading, refresh } = useCycle();
+  const { user } = useAuth();
   const { toast: showToast } = useToast();
 
   const [cyclesWithProgress, setCyclesWithProgress] = useState<CycleWithProgress[]>([]);
@@ -418,13 +525,16 @@ export default function CyclesPage() {
   const [activatingCycle, setActivatingCycle] = useState<CycleWithProgress | null>(null);
   const [activating, setActivating] = useState(false);
   const [closingId, setClosingId] = useState<string | null>(null);
+  const [deletingCycle, setDeletingCycle] = useState<ReviewCycle | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [suspendingCycle, setSuspendingCycle] = useState<ReviewCycle | null>(null);
+  const [suspending, setSuspending] = useState(false);
   const [defaultersDrawer, setDefaultersDrawer] = useState<{ cycle: ReviewCycle; type: 'employee' | 'manager' } | null>(null);
   const [expandedCycle, setExpandedCycle] = useState<string | null>(null);
 
   const loadProgress = useCallback(async () => {
     setProgressLoading(true);
 
-    // Fetch all employees
     const { data: empData } = await supabase
       .from('users')
       .select('id, full_name, email, designation')
@@ -432,7 +542,6 @@ export default function CyclesPage() {
 
     const empList = empData ?? [];
 
-    // Fetch all skill_forms with cycle info
     const { data: formsData } = await supabase
       .from('skill_forms')
       .select('id, employee_id, status, cycle_id');
@@ -454,8 +563,7 @@ export default function CyclesPage() {
 
     setEmployees(empRows);
 
-    // Build per-cycle progress
-    const withProgress = allCycles.map((cycle) => {
+    const withProgress = adminCycles.map((cycle) => {
       const cycleEmployees = empRows.filter((e) => e.cycle_id === cycle.id);
       const notStarted = empRows.filter((e) => !e.cycle_id || e.cycle_id !== cycle.id);
 
@@ -477,7 +585,7 @@ export default function CyclesPage() {
 
     setCyclesWithProgress(withProgress);
     setProgressLoading(false);
-  }, [allCycles]);
+  }, [adminCycles]);
 
   useEffect(() => {
     if (!loading) loadProgress();
@@ -493,12 +601,9 @@ export default function CyclesPage() {
     if (error) {
       showToast(error.message, 'error');
     } else {
-      // Reset ALL employee forms to draft for the new cycle using a SECURITY DEFINER
-      // RPC that bypasses per-row RLS restrictions on skill_forms.
       const { error: rpcError } = await supabase.rpc('activate_cycle_reset_forms', {
         p_cycle_id: cycle.id,
       });
-
       if (rpcError) {
         showToast(`Cycle activated but form reset failed: ${rpcError.message}`, 'warning');
       } else {
@@ -528,13 +633,52 @@ export default function CyclesPage() {
     setClosingId(null);
   }
 
+  async function handleDelete(cycle: ReviewCycle) {
+    setDeleting(true);
+    const { error } = await supabase
+      .from('review_cycles')
+      .delete()
+      .eq('id', cycle.id)
+      .eq('status', 'draft');
+
+    setDeleting(false);
+    if (error) {
+      showToast(error.message, 'error');
+    } else {
+      showToast(`Cycle "${cycle.name}" deleted.`, 'success');
+      setDeletingCycle(null);
+      await refresh();
+      await loadProgress();
+    }
+  }
+
+  async function handleSuspend(cycle: ReviewCycle, reason: string) {
+    setSuspending(true);
+    const { error } = await supabase.rpc('suspend_cycle', {
+      p_cycle_id: cycle.id,
+      p_reason: reason.trim(),
+      p_user_id: user!.id,
+    });
+
+    setSuspending(false);
+    if (error) {
+      showToast(error.message, 'error');
+    } else {
+      showToast(`Cycle "${cycle.name}" has been suspended and all associated records purged.`, 'success');
+      setSuspendingCycle(null);
+      await refresh();
+      await loadProgress();
+    }
+  }
+
   const incompleteInActiveCycle = activeCycle
     ? employees.filter((e) =>
-        e.cycle_id === activeCycle.id
-          ? e.form_status !== 'approved'
-          : true
+        e.cycle_id === activeCycle.id ? e.form_status !== 'approved' : true
       ).length
     : 0;
+
+  const suspendedCycles = cyclesWithProgress.filter((c) => c.status === 'suspended');
+  const nonSuspendedCycles = cyclesWithProgress.filter((c) => c.status !== 'suspended');
 
   return (
     <AppShell>
@@ -585,14 +729,23 @@ export default function CyclesPage() {
                 </span>
               </div>
             </div>
-            <button
-              onClick={() => handleClose(activeCycle)}
-              disabled={closingId === activeCycle.id}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-emerald-300 text-emerald-700 hover:bg-emerald-100 text-xs font-semibold font-heading transition-colors disabled:opacity-50 shrink-0"
-            >
-              {closingId === activeCycle.id ? <Loader2 size={12} className="animate-spin" /> : <Lock size={12} />}
-              Close Cycle
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setSuspendingCycle(activeCycle)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 text-xs font-semibold font-heading transition-colors"
+              >
+                <PauseCircle size={12} />
+                Suspend
+              </button>
+              <button
+                onClick={() => handleClose(activeCycle)}
+                disabled={closingId === activeCycle.id}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-emerald-300 text-emerald-700 hover:bg-emerald-100 text-xs font-semibold font-heading transition-colors disabled:opacity-50"
+              >
+                {closingId === activeCycle.id ? <Loader2 size={12} className="animate-spin" /> : <Lock size={12} />}
+                Close Cycle
+              </button>
+            </div>
           </div>
         )}
 
@@ -611,19 +764,19 @@ export default function CyclesPage() {
           </div>
         )}
 
-        {/* Cycles list */}
+        {/* Active + closed + draft cycles */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
             <Calendar size={16} className="text-primary-500" />
             <h2 className="font-heading font-semibold text-base text-gray-900">All Cycles</h2>
-            <span className="ml-1 px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 text-[11px] font-semibold font-heading">{allCycles.length}</span>
+            <span className="ml-1 px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 text-[11px] font-semibold font-heading">{nonSuspendedCycles.length}</span>
           </div>
 
           {loading || progressLoading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 size={24} className="animate-spin text-primary-300" />
             </div>
-          ) : cyclesWithProgress.length === 0 ? (
+          ) : nonSuspendedCycles.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center px-6">
               <Calendar size={28} className="text-gray-200 mb-3" />
               <p className="font-heading font-semibold text-gray-500 text-sm">No cycles yet</p>
@@ -631,7 +784,7 @@ export default function CyclesPage() {
             </div>
           ) : (
             <div className="divide-y divide-gray-50">
-              {cyclesWithProgress.map((cycle) => {
+              {nonSuspendedCycles.map((cycle) => {
                 const statusCfg = CYCLE_STATUS_CONFIG[cycle.status];
                 const empDays = daysUntil(cycle.employee_deadline);
                 const mgrDays = daysUntil(cycle.manager_deadline);
@@ -690,14 +843,25 @@ export default function CyclesPage() {
 
                       {/* Actions */}
                       <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
-                        {/* Edit (draft or active) */}
-                        {cycle.status !== 'closed' && (
+                        {/* Edit (draft only — not active, not closed) */}
+                        {cycle.status === 'draft' && (
                           <button
                             onClick={() => setEditingCycle(cycle)}
                             className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
                             title="Edit cycle"
                           >
                             <Edit2 size={13} />
+                          </button>
+                        )}
+
+                        {/* Delete (draft only) */}
+                        {cycle.status === 'draft' && (
+                          <button
+                            onClick={() => setDeletingCycle(cycle)}
+                            className="w-7 h-7 rounded-lg flex items-center justify-center text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                            title="Delete cycle"
+                          >
+                            <Trash2 size={13} />
                           </button>
                         )}
 
@@ -712,12 +876,11 @@ export default function CyclesPage() {
                           </button>
                         )}
 
-                        {/* Activate but there's already an active cycle */}
                         {cycle.status === 'draft' && activeCycle && (
                           <span className="text-[10px] text-gray-400 font-body">Another cycle active</span>
                         )}
 
-                        {/* View/defaulters for active */}
+                        {/* Defaulters for active */}
                         {cycle.status === 'active' && (
                           <>
                             <button
@@ -781,6 +944,51 @@ export default function CyclesPage() {
             </div>
           )}
         </div>
+
+        {/* Suspended cycles — admin view only */}
+        {suspendedCycles.length > 0 && (
+          <div className="bg-white rounded-2xl border border-red-100 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-red-100 flex items-center gap-2 bg-red-50/40">
+              <Ban size={15} className="text-red-400" />
+              <h2 className="font-heading font-semibold text-base text-red-700">Suspended Cycles</h2>
+              <span className="ml-1 px-2 py-0.5 rounded-full bg-red-100 text-red-600 text-[11px] font-semibold font-heading">{suspendedCycles.length}</span>
+              <span className="ml-auto text-[11px] text-red-400 font-body">Visible on this page only · Not shown in cycle selectors</span>
+            </div>
+
+            <div className="divide-y divide-red-50">
+              {suspendedCycles.map((cycle) => (
+                <div key={cycle.id} className="px-5 py-4 space-y-2">
+                  <div className="flex items-start gap-3">
+                    <div className="w-2.5 h-2.5 rounded-full bg-red-400 shrink-0 mt-1.5" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-heading font-semibold text-gray-800 text-sm">{cycle.name}</p>
+                        <span className="text-[10px] font-semibold font-heading px-2 py-0.5 rounded-full bg-red-100 text-red-700">
+                          Suspended
+                        </span>
+                        <span className="text-[10px] text-gray-400 font-body">{CYCLE_TYPE_LABELS[cycle.cycle_type]}</span>
+                      </div>
+                      <div className="flex items-center gap-4 mt-0.5 text-[11px] text-gray-400 font-body flex-wrap">
+                        <span>Created {formatDate(cycle.created_at)}</span>
+                        {cycle.triggered_at && <span>Activated {formatDatetime(cycle.triggered_at)}</span>}
+                        {cycle.suspended_at && <span className="text-red-500">Suspended {formatDatetime(cycle.suspended_at)}</span>}
+                      </div>
+                    </div>
+                  </div>
+                  {cycle.suspension_reason && (
+                    <div className="ml-5 flex items-start gap-2.5 px-3.5 py-2.5 bg-red-50 border border-red-100 rounded-xl">
+                      <AlertTriangle size={13} className="text-red-400 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-[10px] font-semibold font-heading text-red-500 uppercase tracking-wide mb-0.5">Suspension Reason</p>
+                        <p className="text-xs text-red-700 font-body leading-relaxed">{cycle.suspension_reason}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Modals */}
@@ -799,6 +1007,24 @@ export default function CyclesPage() {
           onConfirm={() => handleActivate(activatingCycle)}
           onCancel={() => setActivatingCycle(null)}
           activating={activating}
+        />
+      )}
+
+      {deletingCycle && (
+        <DeleteModal
+          cycle={deletingCycle}
+          onConfirm={() => handleDelete(deletingCycle)}
+          onCancel={() => setDeletingCycle(null)}
+          deleting={deleting}
+        />
+      )}
+
+      {suspendingCycle && (
+        <SuspendModal
+          cycle={suspendingCycle}
+          onConfirm={(reason) => handleSuspend(suspendingCycle, reason)}
+          onCancel={() => setSuspendingCycle(null)}
+          suspending={suspending}
         />
       )}
 
