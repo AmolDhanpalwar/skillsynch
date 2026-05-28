@@ -222,13 +222,36 @@ function SkillFormInner() {
         })));
       }
 
-      const existingFormRes = await supabase
-        .from('skill_forms')
-        .select('*')
-        .eq('employee_id', user!.id)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      // Prefer the form that belongs to the current active cycle.
+      // If no active cycle, fall back to the most recently updated form.
+      let existingFormRes;
+      if (activeCycle) {
+        existingFormRes = await supabase
+          .from('skill_forms')
+          .select('*')
+          .eq('employee_id', user!.id)
+          .eq('cycle_id', activeCycle.id)
+          .maybeSingle();
+
+        // Fallback: if no form exists for this cycle yet, load the most recent one
+        if (!existingFormRes.data) {
+          existingFormRes = await supabase
+            .from('skill_forms')
+            .select('*')
+            .eq('employee_id', user!.id)
+            .order('updated_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        }
+      } else {
+        existingFormRes = await supabase
+          .from('skill_forms')
+          .select('*')
+          .eq('employee_id', user!.id)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+      }
 
       const existingForm = existingFormRes.data;
 
@@ -359,7 +382,8 @@ function SkillFormInner() {
     }
 
     init();
-  }, [user, reset, setFormId, setFormStatus]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, activeCycle, reset, setFormId, setFormStatus]);
 
   const showToast = useCallback((msg: string) => {
     setToastMsg(msg);

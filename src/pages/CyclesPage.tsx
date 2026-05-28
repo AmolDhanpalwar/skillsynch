@@ -493,20 +493,17 @@ export default function CyclesPage() {
     if (error) {
       showToast(error.message, 'error');
     } else {
-      // Reset ALL employee forms to draft for the new cycle.
-      // Previously-approved forms already have a version snapshot so this is safe.
-      await supabase
-        .from('skill_forms')
-        .update({
-          cycle_id: cycle.id,
-          status: 'draft',
-          submitted_at: null,
-          approved_at: null,
-          manager_review_date: null,
-        })
-        .neq('id', '00000000-0000-0000-0000-000000000000'); // matches all rows
+      // Reset ALL employee forms to draft for the new cycle using a SECURITY DEFINER
+      // RPC that bypasses per-row RLS restrictions on skill_forms.
+      const { error: rpcError } = await supabase.rpc('activate_cycle_reset_forms', {
+        p_cycle_id: cycle.id,
+      });
 
-      showToast(`Cycle "${cycle.name}" is now active. All employee forms reset to draft.`, 'success');
+      if (rpcError) {
+        showToast(`Cycle activated but form reset failed: ${rpcError.message}`, 'warning');
+      } else {
+        showToast(`Cycle "${cycle.name}" is now active. All employee forms reset to draft.`, 'success');
+      }
       await refresh();
       await loadProgress();
     }

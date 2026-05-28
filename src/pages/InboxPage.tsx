@@ -121,13 +121,20 @@ export default function InboxPage() {
     if (!user) return;
     async function load() {
       setLoading(true);
-      const { data } = await supabase
+      let q = supabase
         .from('skill_forms')
         .select(
           'id, status, submitted_at, updated_at, users!skill_forms_employee_id_fkey(id, full_name, email, designation, grade)'
         )
-        .eq('manager_id', user!.id)
-        .order('updated_at', { ascending: false });
+        .eq('manager_id', user!.id);
+
+      // Show only forms belonging to the active cycle so stale approved
+      // forms from closed cycles don't appear in the inbox.
+      if (activeCycle) {
+        q = q.eq('cycle_id', activeCycle.id);
+      }
+
+      const { data } = await q.order('updated_at', { ascending: false });
 
       if (data) {
         setForms(
@@ -152,7 +159,7 @@ export default function InboxPage() {
       setLoading(false);
     }
     load();
-  }, [user]);
+  }, [user, activeCycle]);
 
   const filtered = filter === 'all' ? forms : forms.filter((f) => f.status === filter);
 

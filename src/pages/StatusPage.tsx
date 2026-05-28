@@ -14,6 +14,7 @@ import {
 import AppShell from '../components/layout/AppShell';
 import { SkeletonTableRows } from '../components/ui/Skeleton';
 import { supabase } from '../lib/supabaseClient';
+import { useCycle } from '../context/CycleContext';
 import type { FormStatus } from '../types';
 
 interface StatusRow {
@@ -57,6 +58,7 @@ function getInitials(name: string) {
 }
 
 export default function StatusPage() {
+  const { activeCycle } = useCycle();
   const [rows, setRows] = useState<StatusRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -65,9 +67,17 @@ export default function StatusPage() {
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
+    let formsQuery = supabase
+      .from('skill_forms')
+      .select('id, employee_id, status, submitted_at, reminders_sent');
+
+    if (activeCycle) {
+      formsQuery = formsQuery.eq('cycle_id', activeCycle.id);
+    }
+
     const [{ data: employees }, { data: forms }, { data: allUsers }] = await Promise.all([
       supabase.from('users').select('id, full_name, email, manager_id').eq('role', 'employee'),
-      supabase.from('skill_forms').select('id, employee_id, status, submitted_at, reminders_sent'),
+      formsQuery,
       supabase.from('users').select('id, full_name').eq('is_active', true),
     ]);
 
@@ -112,7 +122,7 @@ export default function StatusPage() {
 
     setRows(result);
     setLoading(false);
-  }, []);
+  }, [activeCycle]);
 
   useEffect(() => { load(); }, [load]);
 

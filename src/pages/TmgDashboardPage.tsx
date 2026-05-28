@@ -302,10 +302,18 @@ export default function TmgDashboardPage() {
 
       const empIds = employees.map((e) => e.id);
 
-      const { data: forms } = await supabase
+      // Filter forms by active cycle so we only show current-cycle statuses.
+      // If no active cycle exists, fall back to showing all forms.
+      let formsQuery = supabase
         .from('skill_forms')
-        .select('id, employee_id, status, updated_at, manager_id')
+        .select('id, employee_id, status, updated_at, manager_id, cycle_id')
         .in('employee_id', empIds);
+
+      if (activeCycle) {
+        formsQuery = formsQuery.eq('cycle_id', activeCycle.id);
+      }
+
+      const { data: forms } = await formsQuery;
 
       const formMap: Record<string, { id: string; status: FormStatus; updated_at: string; manager_id: string | null }> = {};
       if (forms) forms.forEach((f) => { formMap[f.employee_id] = { id: f.id, status: f.status as FormStatus, updated_at: f.updated_at, manager_id: f.manager_id ?? null }; });
@@ -349,7 +357,7 @@ export default function TmgDashboardPage() {
       setLoading(false);
     }
     load();
-  }, []);
+  }, [activeCycle]);
 
   useEffect(() => {
     if (selectedCycleId === 'current') {

@@ -128,16 +128,23 @@ export default function DashboardPage() {
       return;
     }
     async function load() {
-      const { data } = await supabase
+      // Filter by active cycle if one exists — ensures we show current cycle status
+      let q = supabase
         .from('skill_forms')
-        .select('id, status, updated_at, submitted_at, total_exp, current_project')
-        .eq('employee_id', user!.id)
-        .maybeSingle();
+        .select('id, status, updated_at, submitted_at, total_exp, current_project');
+
+      if (activeCycle) {
+        q = q.eq('employee_id', user!.id).eq('cycle_id', activeCycle.id);
+      } else {
+        q = q.eq('employee_id', user!.id);
+      }
+
+      const { data } = await q.maybeSingle();
       setForm(data as SkillForm | null);
       setLoadingForm(false);
     }
     load();
-  }, [user]);
+  }, [user, activeCycle]);
 
   useEffect(() => {
     if (selectedCycleId === 'current' || !user || user.role !== 'employee') {
