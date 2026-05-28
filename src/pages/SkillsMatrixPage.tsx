@@ -33,8 +33,10 @@ import {
 } from 'recharts';
 import AppShell from '../components/layout/AppShell';
 import { Skeleton } from '../components/ui/Skeleton';
+import CycleSelectorDropdown from '../components/ui/CycleSelectorDropdown';
 import { supabase } from '../lib/supabaseClient';
 import { exportSkillsMatrix } from '../lib/exportService';
+import { useCycle } from '../context/CycleContext';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -784,6 +786,7 @@ function MatrixTable({
 // ── Root page ─────────────────────────────────────────────────────────────────
 
 export default function SkillsMatrixPage() {
+  const { activeCycle, allCycles } = useCycle();
   const [activeTab, setActiveTab] = useState<TabId>('languages');
   const [data, setData] = useState<MatrixData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -792,6 +795,9 @@ export default function SkillsMatrixPage() {
   const [exporting, setExporting] = useState(false);
   const [demandFilter, setDemandFilter] = useState<DemandFilter>('all');
   const [drill, setDrill] = useState<DrillState | null>(null);
+  const [selectedCycleId, setSelectedCycleId] = useState<string | 'current'>('current');
+
+  const isViewingHistory = selectedCycleId !== 'current';
 
   async function handleExport() {
     setExporting(true);
@@ -799,11 +805,92 @@ export default function SkillsMatrixPage() {
   }
 
   useEffect(() => {
-    loadData();
-  }, []);
+    loadData(selectedCycleId === 'current' ? null : selectedCycleId);
+  }, [selectedCycleId]);
 
-  async function loadData() {
+  async function loadData(cycleId: string | null) {
     setLoading(true);
+
+    if (cycleId) {
+      // Load from skill_form_versions snapshots for a closed cycle
+      const [{ data: versions }, langRes, fwRes, toolRes, dbRes, certRes] = await Promise.all([
+        supabase.from('skill_form_versions').select('snapshot').eq('cycle_id', cycleId),
+        supabase.from('settings_languages').select('name, is_haptiq_demand'),
+        supabase.from('settings_frameworks').select('name, is_haptiq_demand'),
+        supabase.from('settings_tools').select('name, is_haptiq_demand'),
+        supabase.from('settings_databases').select('name, is_haptiq_demand'),
+        supabase.from('settings_certifications').select('name, is_haptiq_demand'),
+      ]);
+
+      const snapshots = (versions ?? []).map((v) => v.snapshot as Record<string, unknown>);
+
+      const demandMap = {
+        language:       new Map((langRes.data ?? []).map((r) => [r.name, r.is_haptiq_demand as boolean])),
+        framework:      new Map((fwRes.data ?? []).map((r) => [r.name, r.is_haptiq_demand as boolean])),
+        tools:          new Map((toolRes.data ?? []).map((r) => [r.name, r.is_haptiq_demand as boolean])),
+        databases:      new Map((dbRes.data ?? []).map((r) => [r.name, r.is_haptiq_demand as boolean])),
+        certifications: new Map((certRes.data ?? []).map((r) => [r.name, r.is_haptiq_demand as boolean])),
+      };
+
+      function aggregateSnapshotItems(category: 'language' | 'framework'): SkillStat[] {
+        const map = new Map<string, { emp: number[]; mgr: number[]; dist: number[] }>();
+        snapshots.forEach((snap) => {
+          const skills = (snap.skill_items as { category: string; name: string; employee_rating: number | null; manager_rating: number | null }[] | null) ?? [];
+          skills.filter((i) => i.category === category && i.employee_rating !== null).forEach((i) => {
+            if (!map.has(i.name)) map.set(i.name, { emp: [], mgr: [], dist: [0, 0, 0, 0] });
+            const entry = map.get(i.name)!;
+            const er = Number(i.employee_rating);
+            entry.emp.push(er);
+            if (i.manager_rating !== null) entry.mgr.push(Number(i.manager_rating));
+            if (er >= 1 && er <= 4) entry.dist[er - 1]++;
+          });
+        });
+        const result: SkillStat[] = [];
+        map.forEach((v, name) => {
+          const avg_emp = v.emp.length ? v.emp.reduce((a, b) => a + b, 0) / v.emp.length : 0;
+          const avg_mgr = v.mgr.length ? v.mgr.reduce((a, b) => a + b, 0) / v.mgr.length : 0;
+          result.push({
+            name, count: v.emp.length,
+            avg_employee: Math.round(avg_emp * 100) / 100,
+            avg_manager: Math.round(avg_mgr * 100) / 100,
+            beginner: v.dist[0], intermediate: v.dist[1], advanced: v.dist[2], expert: v.dist[3],
+            is_haptiq_demand: demandMap[category].get(name) ?? false,
+          });
+        });
+        return result.sort((a, b) => b.count - a.count);
+      }
+
+      function aggregateSnapshotText(field: 'tools' | 'databases'): SimpleStat[] {
+        const map = new Map<string, number>();
+        snapshots.forEach((snap) => {
+          const raw = (snap[field] as string) ?? '';
+          raw.split(',').map((s) => s.trim()).filter(Boolean).forEach((t) => { map.set(t, (map.get(t) ?? 0) + 1); });
+        });
+        return Array.from(map.entries()).map(([name, count]) => ({ name, count, is_haptiq_demand: demandMap[field].get(name) ?? false })).sort((a, b) => b.count - a.count);
+      }
+
+      function aggregateSnapshotCerts(): SimpleStat[] {
+        const map = new Map<string, number>();
+        snapshots.forEach((snap) => {
+          const certs = (snap.certifications as string[]) ?? [];
+          certs.filter(Boolean).forEach((c) => { const t = c.trim(); if (t) map.set(t, (map.get(t) ?? 0) + 1); });
+        });
+        return Array.from(map.entries()).map(([name, count]) => ({ name, count, is_haptiq_demand: demandMap.certifications.get(name) ?? false })).sort((a, b) => b.count - a.count);
+      }
+
+      setData({
+        languages: aggregateSnapshotItems('language'),
+        frameworks: aggregateSnapshotItems('framework'),
+        tools: aggregateSnapshotText('tools'),
+        databases: aggregateSnapshotText('databases'),
+        certifications: aggregateSnapshotCerts(),
+        totalForms: snapshots.length,
+        approvedForms: snapshots.length,
+      });
+      setLoading(false);
+      return;
+    }
+
     const [formsRes, itemsRes, langRes, fwRes, toolRes, dbRes, certRes] = await Promise.all([
       supabase.from('skill_forms').select('id, status, tools, databases, certifications'),
       supabase.from('skill_items').select('category, name, employee_rating, manager_rating'),
@@ -961,7 +1048,13 @@ export default function SkillsMatrixPage() {
             <h1 className="font-heading font-bold text-2xl text-gray-900">Skills Matrix</h1>
             <p className="text-sm text-gray-500 font-body mt-1">Aggregated skill statistics across all submitted employee forms.</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap justify-end">
+            <CycleSelectorDropdown
+              cycles={allCycles}
+              activeCycle={activeCycle}
+              selectedId={selectedCycleId}
+              onChange={(id) => { setSelectedCycleId(id); setDrill(null); }}
+            />
             <div className="flex items-center bg-gray-100 rounded-xl p-1 gap-0.5">
               {DEMAND_FILTERS.map((f) => (
                 <button key={f.id} onClick={() => setDemandFilter(f.id)}
@@ -979,6 +1072,19 @@ export default function SkillsMatrixPage() {
             </button>
           </div>
         </div>
+
+        {isViewingHistory && (
+          <div className="flex items-center gap-3 px-5 py-3.5 bg-sky-50 border border-sky-200 rounded-2xl text-sm text-sky-800">
+            <TrendingUp size={15} className="text-sky-500 shrink-0" />
+            <p>
+              Viewing archived skills data from{' '}
+              <span className="font-semibold">
+                {allCycles.find((c) => c.id === selectedCycleId)?.name ?? 'a previous cycle'}
+              </span>
+              {' '}&mdash; based on approved assessment snapshots.
+            </p>
+          </div>
+        )}
 
         {/* Summary cards */}
         {loading ? (

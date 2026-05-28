@@ -16,6 +16,7 @@ import {
 import AppShell from '../components/layout/AppShell';
 import Toast from '../components/form/Toast';
 import { Skeleton } from '../components/ui/Skeleton';
+import CycleSelectorDropdown from '../components/ui/CycleSelectorDropdown';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -87,9 +88,18 @@ function daysUntil(iso: string | null): number | null {
   return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
 }
 
+interface SnapshotForm {
+  status: 'approved';
+  updated_at: string;
+  submitted_at: string | null;
+  total_exp: number | null;
+  current_project: string | null;
+  cycle_name?: string;
+}
+
 export default function DashboardPage() {
   const { user } = useAuth();
-  const { activeCycle } = useCycle();
+  const { activeCycle, allCycles } = useCycle();
   const navigate = useNavigate();
   const location = useLocation();
   const { notifications, markRead } = useNotifications();
@@ -98,6 +108,9 @@ export default function DashboardPage() {
   const [loadingForm, setLoadingForm] = useState(true);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
+  const [selectedCycleId, setSelectedCycleId] = useState<string | 'current'>('current');
+  const [snapshotForm, setSnapshotForm] = useState<SnapshotForm | null>(null);
+  const [loadingSnapshot, setLoadingSnapshot] = useState(false);
 
   useEffect(() => {
     const state = location.state as { toast?: string } | null;
@@ -126,11 +139,44 @@ export default function DashboardPage() {
     load();
   }, [user]);
 
+  useEffect(() => {
+    if (selectedCycleId === 'current' || !user || user.role !== 'employee') {
+      setSnapshotForm(null);
+      return;
+    }
+    async function loadSnapshot() {
+      setLoadingSnapshot(true);
+      const { data } = await supabase
+        .from('skill_form_versions')
+        .select('snapshot, approved_at, review_cycles(name)')
+        .eq('employee_id', user!.id)
+        .eq('cycle_id', selectedCycleId)
+        .maybeSingle();
+      if (data) {
+        const snap = data.snapshot as Record<string, unknown>;
+        setSnapshotForm({
+          status: 'approved',
+          updated_at: data.approved_at,
+          submitted_at: snap.submitted_at as string | null ?? null,
+          total_exp: snap.total_exp as number | null ?? null,
+          current_project: snap.current_project as string | null ?? null,
+          cycle_name: (data.review_cycles as { name: string } | null)?.name,
+        });
+      } else {
+        setSnapshotForm(null);
+      }
+      setLoadingSnapshot(false);
+    }
+    loadSnapshot();
+  }, [selectedCycleId, user]);
+
   const initials = user ? getInitials(user.full_name || user.email) : '??';
   const recentNotifs = notifications.slice(0, 3);
-  const completion = calcCompletion(form);
-  const statusCfg = form ? STATUS_CONFIG[form.status] : null;
   const isEmployee = user?.role === 'employee';
+  const isViewingHistory = selectedCycleId !== 'current';
+  const displayForm = isViewingHistory ? snapshotForm as SkillForm | null : form;
+  const completion = calcCompletion(displayForm);
+  const statusCfg = displayForm ? STATUS_CONFIG[displayForm.status] : null;
 
   const empDaysLeft = daysUntil(activeCycle?.employee_deadline ?? null);
   const empDeadlinePassed = empDaysLeft !== null && empDaysLeft < 0;
@@ -152,7 +198,37 @@ export default function DashboardPage() {
     <AppShell>
       <div className="max-w-3xl mx-auto space-y-6">
 
-        {activeCycle && (
+        {isEmployee && (
+          <div className="flex items-center justify-between">
+            <div />
+            <CycleSelectorDropdown
+              cycles={allCycles}
+              activeCycle={activeCycle}
+              selectedId={selectedCycleId}
+              onChange={setSelectedCycleId}
+            />
+          </div>
+        )}
+
+        {isViewingHistory && snapshotForm && (
+          <div className="flex items-center gap-3 px-5 py-3.5 bg-sky-50 border border-sky-200 rounded-2xl text-sm text-sky-800">
+            <Calendar size={15} className="shrink-0" />
+            <p>
+              Viewing archived assessment from{' '}
+              <span className="font-semibold">{snapshotForm.cycle_name ?? 'a previous cycle'}</span>
+              {' '}&mdash; read-only snapshot.
+            </p>
+          </div>
+        )}
+
+        {isViewingHistory && !loadingSnapshot && !snapshotForm && (
+          <div className="flex items-center gap-3 px-5 py-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-sm text-amber-800">
+            <AlertTriangle size={15} className="shrink-0" />
+            <p>No approved assessment found for the selected cycle.</p>
+          </div>
+        )}
+
+        {!isViewingHistory && activeCycle && (
           <div className={`flex items-start gap-3 px-5 py-4 rounded-2xl border text-sm font-body
             ${isEmployee && empDeadlinePassed
               ? 'bg-red-50 border-red-200 text-red-800'
@@ -188,7 +264,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {!activeCycle && !isEmployee && (
+        {!isViewingHistory && !activeCycle && !isEmployee && (
           <div className="flex items-start gap-3 px-5 py-4 rounded-2xl border border-amber-200 bg-amber-50 text-amber-800 text-sm font-body">
             <AlertTriangle size={16} className="shrink-0 mt-0.5" />
             <p><span className="font-semibold font-heading">No active cycle.</span> Ask your TMG to trigger a new assessment cycle.</p>
@@ -235,7 +311,7 @@ export default function DashboardPage() {
             </div>
 
             <div className="px-6 py-5 space-y-5">
-              {loadingForm ? (
+              {loadingForm || loadingSnapshot ? (
                 <div className="space-y-3 py-2">
                   <Skeleton className="h-3 w-32" />
                   <Skeleton className="h-2.5 w-full rounded-full" />
@@ -287,7 +363,12 @@ export default function DashboardPage() {
                   )}
 
                   <div className="flex items-center gap-3 pt-1">
-                    {(!form || form.status === 'draft' || form.status === 'returned') ? (
+                    {isViewingHistory ? (
+                      <p className="flex items-center gap-1.5 text-xs text-sky-600 font-body">
+                        <CheckCircle2 size={12} />
+                        Archived approved assessment — read only
+                      </p>
+                    ) : (!form || form.status === 'draft' || form.status === 'returned') ? (
                       <button
                         onClick={() => navigate('/form')}
                         className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white text-sm font-semibold font-heading transition-all shadow-sm shadow-primary-200"
@@ -306,19 +387,19 @@ export default function DashboardPage() {
                       </button>
                     )}
 
-                    {form?.status === 'returned' && (
+                    {!isViewingHistory && form?.status === 'returned' && (
                       <p className="flex items-center gap-1.5 text-xs text-orange-600 font-body">
                         <RotateCcw size={12} />
                         Your form was returned for revision
                       </p>
                     )}
-                    {form?.status === 'pending_review' && (
+                    {!isViewingHistory && form?.status === 'pending_review' && (
                       <p className="flex items-center gap-1.5 text-xs text-amber-600 font-body">
                         <Clock size={12} />
                         Awaiting manager review
                       </p>
                     )}
-                    {form?.status === 'approved' && (
+                    {!isViewingHistory && form?.status === 'approved' && (
                       <p className="flex items-center gap-1.5 text-xs text-emerald-600 font-body">
                         <CheckCircle2 size={12} />
                         Your profile has been approved

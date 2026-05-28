@@ -493,13 +493,20 @@ export default function CyclesPage() {
     if (error) {
       showToast(error.message, 'error');
     } else {
-      // Stamp cycle_id on all existing draft forms that don't have a cycle yet
+      // Reset ALL employee forms to draft for the new cycle.
+      // Previously-approved forms already have a version snapshot so this is safe.
       await supabase
         .from('skill_forms')
-        .update({ cycle_id: cycle.id })
-        .is('cycle_id', null);
+        .update({
+          cycle_id: cycle.id,
+          status: 'draft',
+          submitted_at: null,
+          approved_at: null,
+          manager_review_date: null,
+        })
+        .neq('id', '00000000-0000-0000-0000-000000000000'); // matches all rows
 
-      showToast(`Cycle "${cycle.name}" is now active.`, 'success');
+      showToast(`Cycle "${cycle.name}" is now active. All employee forms reset to draft.`, 'success');
       await refresh();
       await loadProgress();
     }

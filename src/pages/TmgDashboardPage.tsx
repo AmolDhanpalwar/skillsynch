@@ -21,6 +21,7 @@ import AppShell from '../components/layout/AppShell';
 import ExportModal from '../components/export/ExportModal';
 import Toast from '../components/form/Toast';
 import { SkeletonTableRows } from '../components/ui/Skeleton';
+import CycleSelectorDropdown from '../components/ui/CycleSelectorDropdown';
 import { supabase } from '../lib/supabaseClient';
 import { exportSkillAssessmentReport } from '../lib/exportService';
 import { useCycle } from '../context/CycleContext';
@@ -256,9 +257,12 @@ function ChangeManagerModal({ employee, onClose, onChanged }: ChangeManagerModal
 
 export default function TmgDashboardPage() {
   const navigate = useNavigate();
-  const { activeCycle } = useCycle();
+  const { activeCycle, allCycles } = useCycle();
   const [rows, setRows] = useState<EmployeeRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedCycleId, setSelectedCycleId] = useState<string | 'current'>('current');
+  const [snapshotRows, setSnapshotRows] = useState<EmployeeRow[]>([]);
+  const [loadingSnapshot, setLoadingSnapshot] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [gradeFilter, setGradeFilter] = useState('all');
@@ -347,11 +351,65 @@ export default function TmgDashboardPage() {
     load();
   }, []);
 
-  const grades = useMemo(() => ['all', ...Array.from(new Set(rows.map((r) => r.grade).filter((g) => g !== '—'))).sort()], [rows]);
-  const managers = useMemo(() => ['all', ...Array.from(new Set(rows.map((r) => r.manager_name).filter((m) => m !== '—'))).sort()], [rows]);
+  useEffect(() => {
+    if (selectedCycleId === 'current') {
+      setSnapshotRows([]);
+      return;
+    }
+    async function loadSnapshot() {
+      setLoadingSnapshot(true);
+      const { data: versions } = await supabase
+        .from('skill_form_versions')
+        .select('employee_id, form_id, snapshot, approved_at')
+        .eq('cycle_id', selectedCycleId);
+
+      if (!versions || versions.length === 0) {
+        setSnapshotRows([]);
+        setLoadingSnapshot(false);
+        return;
+      }
+
+      const empIds = versions.map((v) => v.employee_id);
+      const { data: employees } = await supabase
+        .from('users')
+        .select('id, full_name, email, designation, grade, employee_number, manager_id')
+        .in('id', empIds);
+
+      const empMap = Object.fromEntries((employees ?? []).map((e) => [e.id, e]));
+
+      const built: EmployeeRow[] = versions.map((v) => {
+        const emp = empMap[v.employee_id];
+        const snap = v.snapshot as Record<string, unknown>;
+        return {
+          id: v.employee_id,
+          full_name: emp?.full_name ?? (snap.employee_name as string) ?? '—',
+          email: emp?.email ?? (snap.employee_email as string) ?? '—',
+          designation: emp?.designation ?? (snap.designation as string) ?? '—',
+          grade: emp?.grade ?? (snap.grade as string) ?? '—',
+          employee_number: emp?.employee_number ?? (snap.employee_number as string) ?? '—',
+          manager_id: null,
+          manager_name: '—',
+          form_id: v.form_id,
+          form_status: 'approved' as FormStatus,
+          form_updated_at: v.approved_at,
+        };
+      });
+
+      setSnapshotRows(built);
+      setLoadingSnapshot(false);
+    }
+    loadSnapshot();
+  }, [selectedCycleId]);
+
+  const isViewingHistory = selectedCycleId !== 'current';
+  const displayRows = isViewingHistory ? snapshotRows : rows;
+  const displayLoading = isViewingHistory ? loadingSnapshot : loading;
+
+  const grades = useMemo(() => ['all', ...Array.from(new Set(displayRows.map((r) => r.grade).filter((g) => g !== '—'))).sort()], [displayRows]);
+  const managers = useMemo(() => ['all', ...Array.from(new Set(displayRows.map((r) => r.manager_name).filter((m) => m !== '—'))).sort()], [displayRows]);
 
   const filtered = useMemo(() => {
-    return rows.filter((r) => {
+    return displayRows.filter((r) => {
       const q = search.toLowerCase();
       if (q && !r.full_name.toLowerCase().includes(q) && !r.employee_number.toLowerCase().includes(q)) return false;
       if (gradeFilter !== 'all' && r.grade !== gradeFilter) return false;
@@ -360,14 +418,14 @@ export default function TmgDashboardPage() {
       if (statusFilter !== 'all' && statusFilter !== 'not_started' && r.form_status !== statusFilter) return false;
       return true;
     });
-  }, [rows, search, statusFilter, gradeFilter, managerFilter]);
+  }, [displayRows, search, statusFilter, gradeFilter, managerFilter]);
 
   const stats = useMemo(() => ({
-    total: rows.length,
-    approved: rows.filter((r) => r.form_status === 'approved').length,
-    pending: rows.filter((r) => r.form_status === 'pending_review').length,
-    notStarted: rows.filter((r) => r.form_status === null).length,
-  }), [rows]);
+    total: displayRows.length,
+    approved: displayRows.filter((r) => r.form_status === 'approved').length,
+    pending: displayRows.filter((r) => r.form_status === 'pending_review').length,
+    notStarted: displayRows.filter((r) => r.form_status === null).length,
+  }), [displayRows]);
 
   const STAT_CARDS = [
     { label: 'Total Employees', value: stats.total,      icon: Users,        color: 'text-primary-500',  bg: 'bg-primary-50',  border: 'border-primary-100' },
@@ -385,7 +443,7 @@ export default function TmgDashboardPage() {
     { value: 'approved',       label: 'Approved' },
   ];
 
-  const incompleteCount = rows.filter((r) => r.form_status !== 'approved').length;
+  const incompleteCount = rows.filter((r) => r.form_status !== 'approved').length; // always from live data
 
   return (
     <>
@@ -396,14 +454,35 @@ export default function TmgDashboardPage() {
               <h1 className="font-heading font-bold text-2xl text-gray-900">TMG Overview</h1>
               <p className="text-sm text-gray-500 font-body mt-0.5">Monitor skill profile submissions across all employees.</p>
             </div>
-            <button
-              onClick={() => setShowExportModal(true)}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-semibold font-heading text-gray-600 hover:bg-gray-50 transition-all shadow-sm"
-            >
-              <Download size={15} />
-              Export to Excel
-            </button>
+            <div className="flex items-center gap-3">
+              <CycleSelectorDropdown
+                cycles={allCycles}
+                activeCycle={activeCycle}
+                selectedId={selectedCycleId}
+                onChange={setSelectedCycleId}
+              />
+              <button
+                onClick={() => setShowExportModal(true)}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-semibold font-heading text-gray-600 hover:bg-gray-50 transition-all shadow-sm"
+              >
+                <Download size={15} />
+                Export to Excel
+              </button>
+            </div>
           </div>
+
+          {isViewingHistory && (
+            <div className="flex items-center gap-3 px-5 py-3.5 bg-sky-50 border border-sky-200 rounded-2xl text-sm text-sky-800">
+              <CheckCircle2 size={15} className="text-sky-500 shrink-0" />
+              <p>
+                Viewing archived assessments from{' '}
+                <span className="font-semibold">
+                  {allCycles.find((c) => c.id === selectedCycleId)?.name ?? 'a previous cycle'}
+                </span>
+                {' '}&mdash; read-only snapshot. {snapshotRows.length === 0 && !loadingSnapshot ? 'No approved assessments found for this cycle.' : ''}
+              </p>
+            </div>
+          )}
 
           {!activeCycle ? (
             <div className="flex items-start gap-3 px-5 py-4 rounded-2xl border border-amber-200 bg-amber-50 text-amber-800 text-sm font-body">
@@ -516,11 +595,11 @@ export default function TmgDashboardPage() {
               </div>
 
               <span className="ml-auto text-xs text-gray-400 font-body shrink-0">
-                {filtered.length} of {rows.length} employees
+                {filtered.length} of {displayRows.length} employees
               </span>
             </div>
 
-            {loading ? (
+            {displayLoading ? (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <tbody><SkeletonTableRows rows={6} cols={6} /></tbody>
@@ -609,20 +688,24 @@ export default function TmgDashboardPage() {
                                   View
                                 </button>
                               )}
-                              <button
-                                onClick={() => setChangingManagerFor(row)}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-sky-200 bg-sky-50 text-xs font-semibold font-heading text-sky-600 hover:bg-sky-100 transition-colors"
-                              >
-                                <UserCog size={12} />
-                                Change Manager
-                              </button>
-                              <button
-                                onClick={() => navigate(`/admin?edit=${row.id}`)}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold font-heading text-gray-600 hover:bg-gray-50 transition-colors"
-                              >
-                                <Pencil size={12} />
-                                Edit
-                              </button>
+                              {!isViewingHistory && (
+                                <>
+                                  <button
+                                    onClick={() => setChangingManagerFor(row)}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-sky-200 bg-sky-50 text-xs font-semibold font-heading text-sky-600 hover:bg-sky-100 transition-colors"
+                                  >
+                                    <UserCog size={12} />
+                                    Change Manager
+                                  </button>
+                                  <button
+                                    onClick={() => navigate(`/admin?edit=${row.id}`)}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold font-heading text-gray-600 hover:bg-gray-50 transition-colors"
+                                  >
+                                    <Pencil size={12} />
+                                    Edit
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </td>
                         </tr>

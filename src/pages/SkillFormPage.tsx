@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useNavigate } from 'react-router-dom';
-import { Save, ArrowRight, ArrowLeft, Loader2, CheckCircle2, X, ShieldCheck, RotateCcw, Download, Calendar, AlertTriangle, History, ChevronDown } from 'lucide-react';
+import { Save, ArrowRight, ArrowLeft, Loader2, CheckCircle2, X, ShieldCheck, RotateCcw, Download, Calendar, AlertTriangle, History, ChevronDown, RefreshCw } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
 import StepIndicator from '../components/form/StepIndicator';
 import StatusBadge from '../components/form/StatusBadge';
@@ -158,6 +158,7 @@ function SkillFormInner() {
   const [downloading, setDownloading] = useState(false);
   const [versions, setVersions] = useState<(SkillFormVersion & { cycle_name?: string })[]>([]);
   const [showVersions, setShowVersions] = useState(false);
+  const [formCycleId, setFormCycleId] = useState<string | null>(null);
 
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isInitializing = useRef(true);
@@ -173,9 +174,12 @@ function SkillFormInner() {
   // Keep ref in sync so saveSkillItems always reads the latest value
   stepAdditionalRef.current = stepAdditional;
 
-  const isApproved = formStatus === 'approved';
+  // If there's an active cycle and this form belongs to a different (old) cycle,
+  // treat the form as draft so employees can submit for the new cycle.
+  const formBelongsToActiveCycle = !activeCycle || !formCycleId || formCycleId === activeCycle.id;
+  const isApproved = formStatus === 'approved' && formBelongsToActiveCycle;
   const isReturned = formStatus === 'returned';
-  const isLocked = isApproved || formStatus === 'pending_review';
+  const isLocked = isApproved || (formStatus === 'pending_review' && formBelongsToActiveCycle);
 
   const validOptionsRef = useRef<{ grades: string[]; designations: string[] }>({ grades: [], designations: [] });
 
@@ -258,6 +262,7 @@ function SkillFormInner() {
         localStorage.removeItem(DRAFT_KEY(user!.id));
         setFormId(existingForm.id);
         setFormStatus(existingForm.status as FormStatus);
+        setFormCycleId((existingForm.cycle_id as string | null) ?? null);
         reset({
           full_name: (existingForm.employee_name as string) || baseValues.full_name,
           email: (existingForm.employee_email as string) || baseValues.email,
@@ -608,6 +613,20 @@ function SkillFormInner() {
             <StatusBadge status={formStatus} />
           </div>
         </div>
+
+        {/* New cycle started — form was for a previous cycle, now in draft */}
+        {activeCycle && formCycleId && formCycleId !== activeCycle.id && (
+          <div className="flex items-start gap-3 px-5 py-4 bg-sky-50 border border-sky-200 rounded-2xl">
+            <RefreshCw size={18} className="text-sky-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold font-heading text-sky-800">New cycle started: {activeCycle.name}</p>
+              <p className="text-xs text-sky-700 font-body mt-0.5">
+                A new assessment cycle is active. Your form has been reset to draft — please update and resubmit your skills profile.
+                Previous submissions are available in the history below.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* No active cycle — employee cannot submit */}
         {!activeCycle && !isApproved && (
