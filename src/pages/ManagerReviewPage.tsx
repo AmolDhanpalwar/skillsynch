@@ -447,6 +447,7 @@ export default function ManagerReviewPage() {
 
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
+  const [approveErrors, setApproveErrors] = useState<string[]>([]);
 
   const isApproved = formStatus === 'approved';
   const isTmg = user?.role === 'tmg';
@@ -569,6 +570,31 @@ export default function ManagerReviewPage() {
     setToastMsg(msg);
     setToastVisible(true);
     setTimeout(() => setToastVisible(false), 3000);
+  }
+
+  function validateBeforeApprove(): string[] {
+    const errors: string[] = [];
+
+    const langsMissing = step2.languages.filter((r) => r.name.trim() && r.manager_rating === null);
+    if (langsMissing.length > 0) {
+      errors.push(`Manager rating missing for ${langsMissing.length} language${langsMissing.length > 1 ? 's' : ''}: ${langsMissing.map((r) => r.name).join(', ')}`);
+    }
+
+    const framsMissing = step2.frameworks.filter((r) => r.name.trim() && r.manager_rating === null);
+    if (framsMissing.length > 0) {
+      errors.push(`Manager rating missing for ${framsMissing.length} framework${framsMissing.length > 1 ? 's' : ''}: ${framsMissing.map((r) => r.name).join(', ')}`);
+    }
+
+    const envsMissing = stepAdditional.environments.filter((r) => r.name.trim() && r.manager_rating === null);
+    if (envsMissing.length > 0) {
+      errors.push(`Manager rating missing for ${envsMissing.length} additional skill${envsMissing.length > 1 ? 's' : ''}: ${envsMissing.map((r) => r.name).join(', ')}`);
+    }
+
+    if (!step4.manager_expectation_plan.trim()) {
+      errors.push('Manager\'s Feedback & Expectation Plan (Step 5) is required before approving.');
+    }
+
+    return errors;
   }
 
   async function saveManagerInputs(statusOverride?: FormStatus) {
@@ -866,7 +892,24 @@ export default function ManagerReviewPage() {
         {/* Bottom action bar — only for the assigned manager, not TMG viewers */}
         {!isViewOnly && (
           <div className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 shadow-xl shadow-black/5">
-            <div className="max-w-3xl mx-auto px-6 py-4 flex items-center gap-3">
+            <div className="max-w-3xl mx-auto px-6 py-4 space-y-3">
+              {approveErrors.length > 0 && (
+                <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl bg-red-50 border border-red-200">
+                  <AlertTriangle size={15} className="text-red-500 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold font-heading text-red-700 mb-1">Complete the following before approving:</p>
+                    <ul className="space-y-0.5">
+                      {approveErrors.map((err, i) => (
+                        <li key={i} className="text-xs font-body text-red-600">• {err}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <button onClick={() => setApproveErrors([])} className="shrink-0 text-red-400 hover:text-red-600 transition-colors">
+                    <X size={13} />
+                  </button>
+                </div>
+              )}
+              <div className="flex items-center gap-3">
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold font-heading text-gray-800 truncate">{employeeData.full_name}</p>
                 <p className="text-xs text-gray-400 font-body">Pending your review</p>
@@ -879,12 +922,21 @@ export default function ManagerReviewPage() {
                 Return to Employee
               </button>
               <button
-                onClick={() => setShowApproveModal(true)}
+                onClick={() => {
+                  const errs = validateBeforeApprove();
+                  if (errs.length > 0) {
+                    setApproveErrors(errs);
+                    return;
+                  }
+                  setApproveErrors([]);
+                  setShowApproveModal(true);
+                }}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold font-heading transition-all active:scale-[0.98]"
               >
                 <CheckCircle2 size={15} />
                 Approve
               </button>
+              </div>
             </div>
           </div>
         )}
