@@ -16,7 +16,7 @@ import { FormProvider, useFormContext } from '../context/FormContext';
 import { useAuth } from '../context/AuthContext';
 import { useCycle } from '../context/CycleContext';
 import { supabase } from '../lib/supabaseClient';
-import { exportSkillAssessmentReport } from '../lib/exportService';
+import { exportSkillAssessmentReport, exportSkillAssessmentFromSnapshot } from '../lib/exportService';
 import type { SkillFormVersion } from '../types';
 import { CYCLE_TYPE_LABELS } from '../types';
 import {
@@ -209,11 +209,12 @@ function SkillFormInner() {
     if (!user) return;
 
     async function init() {
-      // Load previous versions
+      // Load previous versions — exclude suspended cycles
       const { data: versionData } = await supabase
         .from('skill_form_versions')
-        .select('*, review_cycles(name)')
+        .select('*, review_cycles!inner(name, status)')
         .eq('employee_id', user!.id)
+        .neq('review_cycles.status', 'suspended')
         .order('approved_at', { ascending: false });
       if (versionData) {
         setVersions(versionData.map((v) => ({
@@ -724,15 +725,17 @@ function SkillFormInner() {
                           {snap?.designation ? ` · ${snap.designation}` : ''}
                         </p>
                       </div>
-                      {v.form_id && (
-                        <button
-                          onClick={() => exportSkillAssessmentReport(v.form_id!)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 text-xs font-semibold font-heading transition-colors"
-                        >
-                          <Download size={11} />
-                          PDF
-                        </button>
-                      )}
+                      <button
+                        onClick={() =>
+                          v.form_id
+                            ? exportSkillAssessmentReport(v.form_id)
+                            : exportSkillAssessmentFromSnapshot(snap, v.cycle_name, v.approved_at)
+                        }
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 text-xs font-semibold font-heading transition-colors shrink-0"
+                      >
+                        <Download size={11} />
+                        PDF
+                      </button>
                     </div>
                   );
                 })}

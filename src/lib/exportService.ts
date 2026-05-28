@@ -816,6 +816,167 @@ export async function exportSkillAssessmentReport(formId: string): Promise<void>
   doc.save(filename);
 }
 
+export async function exportSkillAssessmentFromSnapshot(
+  snapshot: Record<string, unknown>,
+  cycleName: string,
+  approvedAt: string,
+): Promise<void> {
+  // Build form-like data entirely from the snapshot JSON — no live DB row needed.
+  const skillItems = extractSnapshotSkills(snapshot);
+  const currentLanguages: SkillItem[] = skillItems.filter((s) => s.category === 'language');
+  const currentFrameworks: SkillItem[] = skillItems.filter((s) => s.category === 'framework');
+  const currentEnvironments: SkillItem[] = skillItems.filter(
+    (s) => (s.category as string) === 'environment'
+  );
+
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const padding = 10;
+  const col1x = padding + 2;
+  const col2x = pageWidth / 2 + 5;
+
+  let y = drawHaptiqHeader(doc, pageWidth) + 10;
+
+  doc.setTextColor(26, 60, 94);
+  doc.setFontSize(16);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Skill Assessment Report', padding, y);
+  y += 8;
+
+  doc.setTextColor(107, 114, 128);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Generated on ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}`, padding, y);
+  y += 10;
+
+  // ── Employee Profile ──────────────────────────────────────────────────────
+  y = drawSectionHeader(doc, 'Employee Profile', y, pageWidth);
+  y += 4;
+
+  let rowY = y;
+  rowY = drawInfoRow(doc, 'Name:', safeStr(snapshot.employee_name as string), rowY, col1x, col1x + 25);
+  rowY = drawInfoRow(doc, 'Email:', safeStr(snapshot.employee_email as string), rowY, col1x, col1x + 25);
+  rowY = drawInfoRow(doc, 'Employee No:', safeStr(snapshot.employee_number as string), rowY, col1x, col1x + 25);
+
+  let rowY2 = y;
+  rowY2 = drawInfoRow(doc, 'Designation:', safeStr(snapshot.designation as string), rowY2, col2x, col2x + 25);
+  rowY2 = drawInfoRow(doc, 'Grade:', safeStr(snapshot.grade as string), rowY2, col2x, col2x + 25);
+
+  y = Math.max(rowY, rowY2) + 4;
+
+  // ── Experience ────────────────────────────────────────────────────────────
+  y = drawSectionHeader(doc, 'Experience', y, pageWidth);
+  y += 4;
+
+  rowY = y;
+  rowY = drawInfoRow(doc, 'Total Experience:', `${snapshot.total_exp ?? '-'} yrs`, rowY, col1x, col1x + 35);
+  rowY = drawInfoRow(doc, 'Relevant Experience:', `${snapshot.relevant_exp ?? '-'} yrs`, rowY, col1x, col1x + 35);
+  rowY = drawInfoRow(doc, 'Haptiq Experience:', `${snapshot.haptiq_exp ?? '-'} yrs`, rowY, col1x, col1x + 35);
+
+  rowY2 = y;
+  rowY2 = drawInfoRow(doc, 'Current Project:', safeStr(snapshot.current_project as string) || '-', rowY2, col2x, col2x + 35);
+
+  y = Math.max(rowY, rowY2) + 4;
+
+  // ── Assessment Details ────────────────────────────────────────────────────
+  y = drawSectionHeader(doc, 'Assessment Details', y, pageWidth);
+  y += 4;
+
+  rowY = y;
+  rowY = drawInfoRow(doc, 'Cycle:', cycleName, rowY, col1x, col1x + 20);
+  rowY = drawInfoRow(doc, 'Status:', 'Approved', rowY, col1x, col1x + 20);
+  rowY = drawInfoRow(doc, 'Approved:', formatDateLong(approvedAt), rowY, col1x, col1x + 20);
+
+  y = rowY + 8;
+
+  // ── Skills ────────────────────────────────────────────────────────────────
+  const noDeltas = (items: SkillItem[]): SkillItemWithDelta[] =>
+    items.map((s) => ({ ...s, prev_employee_rating: null, prev_manager_rating: null, is_new: false }));
+
+  y = drawSkillTable(doc, 'Programming Languages', noDeltas(currentLanguages), y, pageWidth, pageHeight, false);
+  y = drawSkillTable(doc, 'Frameworks', noDeltas(currentFrameworks), y, pageWidth, pageHeight, false);
+  if (currentEnvironments.length > 0) {
+    y = drawSkillTable(doc, 'Environments', noDeltas(currentEnvironments), y, pageWidth, pageHeight, false);
+  }
+
+  // ── Additional Skills ─────────────────────────────────────────────────────
+  if (y > pageHeight - 60) { doc.addPage(); y = drawHaptiqHeader(doc, pageWidth) + 10; }
+  y = drawSectionHeader(doc, 'Additional Skills', y, pageWidth);
+  y += 4;
+
+  rowY = y;
+  doc.setTextColor(107, 114, 128); doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+  doc.text('Tools & Technologies:', col1x, rowY);
+  doc.setTextColor(26, 60, 94); doc.setFont('helvetica', 'bold');
+  doc.text((safeStr(snapshot.tools as string) || '-').substring(0, 80), col1x + 35, rowY);
+  rowY += 6;
+
+  doc.setTextColor(107, 114, 128); doc.setFont('helvetica', 'normal');
+  doc.text('Databases:', col1x, rowY);
+  doc.setTextColor(26, 60, 94); doc.setFont('helvetica', 'bold');
+  doc.text((safeStr(snapshot.databases as string) || '-').substring(0, 80), col1x + 35, rowY);
+  y = rowY + 8;
+
+  // ── Certifications ────────────────────────────────────────────────────────
+  if (y > pageHeight - 50) { doc.addPage(); y = drawHaptiqHeader(doc, pageWidth) + 10; }
+  y = drawSectionHeader(doc, 'Certifications', y, pageWidth);
+  y += 4;
+
+  const certs = (snapshot.certifications as string[] | null)?.filter(Boolean) ?? [];
+  if (certs.length === 0) {
+    doc.setTextColor(107, 114, 128); doc.setFontSize(9);
+    doc.text('No certifications listed', col1x, y); y += 6;
+  } else {
+    certs.forEach((cert) => {
+      if (y > pageHeight - 15) { doc.addPage(); y = drawHaptiqHeader(doc, pageWidth) + 10; }
+      doc.setTextColor(26, 60, 94); doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+      doc.text(cert, col1x + 3, y); y += 6;
+    });
+  }
+  y += 4;
+
+  // ── Development Plans ─────────────────────────────────────────────────────
+  if (y > pageHeight - 80) { doc.addPage(); y = drawHaptiqHeader(doc, pageWidth) + 10; }
+  y = drawSectionHeader(doc, 'Development Plans', y, pageWidth);
+  y += 6;
+
+  doc.setTextColor(26, 60, 94); doc.setFontSize(10); doc.setFont('helvetica', 'bold');
+  doc.text('6-Month Upskilling Plan (Employee)', col1x, y); y += 5;
+  doc.setTextColor(55, 65, 81); doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+  wrapText(doc, safeStr(snapshot.upskilling_plan as string) || 'Not specified', pageWidth - 2 * padding - 5).forEach((line) => {
+    if (y > pageHeight - 15) { doc.addPage(); y = drawHaptiqHeader(doc, pageWidth) + 10; }
+    doc.text(line, col1x + 3, y); y += 5;
+  });
+  y += 6;
+
+  if (snapshot.manager_expectation_plan) {
+    if (y > pageHeight - 30) { doc.addPage(); y = drawHaptiqHeader(doc, pageWidth) + 10; }
+    doc.setTextColor(26, 60, 94); doc.setFontSize(10); doc.setFont('helvetica', 'bold');
+    doc.text('Manager Expectation Plan', col1x, y); y += 5;
+    doc.setTextColor(55, 65, 81); doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+    wrapText(doc, safeStr(snapshot.manager_expectation_plan as string), pageWidth - 2 * padding - 5).forEach((line) => {
+      if (y > pageHeight - 15) { doc.addPage(); y = drawHaptiqHeader(doc, pageWidth) + 10; }
+      doc.text(line, col1x + 3, y); y += 5;
+    });
+  }
+
+  // ── Footer ────────────────────────────────────────────────────────────────
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setDrawColor(229, 231, 235);
+    doc.line(padding, pageHeight - 15, pageWidth - padding, pageHeight - 15);
+    doc.setTextColor(107, 114, 128); doc.setFontSize(8); doc.setFont('helvetica', 'normal');
+    doc.text('Haptiq SkillSync - Confidential', padding, pageHeight - 10);
+    doc.text(`Page ${i} of ${totalPages}`, pageWidth - padding - 20, pageHeight - 10);
+  }
+
+  const empName = safeStr(snapshot.employee_name as string) || 'employee';
+  const filename = `skill-assessment-${empName.toLowerCase().replace(/\s+/g, '-')}-${cycleName.toLowerCase().replace(/\s+/g, '-')}.pdf`;
+  doc.save(filename);
+}
+
 export async function exportToExcel(filters: ExportFilters = {}): Promise<void> {
   let query = supabase
     .from('skill_forms')
