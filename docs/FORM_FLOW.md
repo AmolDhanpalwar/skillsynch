@@ -2,45 +2,82 @@
 
 ---
 
-## Form Lifecycle
+## Review Cycle Context
 
-A skill form moves through a fixed set of statuses. The current status determines what actions are available to each actor.
+Every skill form is scoped to a **review cycle**. Forms are only active and editable within the cycle they belong to. When a new cycle is activated, all existing forms are reset to `draft` — the previous cycle's approved data is preserved in immutable JSONB snapshots in `skill_form_versions`.
 
 ```
+Review Cycle: ACTIVE
+  └── skill_forms (status: draft → pending_review → approved)
+        └── On approval: snapshot → skill_form_versions
+
+Review Cycle: CLOSED
+  └── skill_forms are reset to draft for the next cycle
+  └── skill_form_versions holds the permanent historical record
+```
+
+Employees, managers, and admins can browse historical cycles via the `CycleSelectorDropdown` on the Dashboard, TMG Dashboard, and Skills Matrix pages. Historical views are read-only and load from `skill_form_versions`, not `skill_forms`.
+
+---
+
+## Form Lifecycle
+
+A skill form moves through a fixed set of statuses within a single review cycle.
+
+```
+                    ┌─────────────────────────────────────────────────────┐
+                    │         New Cycle Activated                          │
+                    │  activate_cycle_reset_forms() resets ALL forms       │
+                    │  to draft with new cycle_id                          │
+                    └─────────────────────────┬───────────────────────────┘
+                                              │
+                                              ▼
                         ┌───────────┐
                         │           │
 Employee creates / ───► │   DRAFT   │ ◄──── Manager returns (with notes)
-edits form              │           │             │
-                        └─────┬─────┘             │
-                              │                   │
-                    Employee submits               │
-                              │                   │
-                              ▼                   │
-                        ┌───────────┐             │
-                        │ PENDING   │             │
-                        │  REVIEW   │             │
-                        └─────┬─────┘             │
-                              │                   │
-                   Manager reviews                │
-                              │                   │
-               ┌──────────────┼──────────────┐    │
-               │              │              │    │
-            Approve        Return            └────┘
-               │              │
+edits form              │           │
+                        └─────┬─────┘
+                              │
+                    Employee submits
+                              │
+                              ▼
+                        ┌───────────┐
+                        │ PENDING   │
+                        │  REVIEW   │
+                        └─────┬─────┘
+                              │
+                   Manager reviews
+                              │
+               ┌──────────────┼──────────────┐
+               │              │              │
+            Approve        Return        ────┘
+               │
                ▼
-         ┌───────────┐
-         │ APPROVED  │  (locked — read-only for all)
-         └───────────┘
+         ┌───────────┐         ┌──────────────────────────────────────┐
+         │ APPROVED  │────────►│  trg_skill_form_approval_snapshot     │
+         └───────────┘         │  AUTO-creates snapshot in             │
+          (read-only)          │  skill_form_versions (JSONB)          │
+                               └──────────────────────────────────────┘
 ```
 
 ### Status Descriptions
 
 | Status | Who sets it | Form is editable by | Notes |
 |---|---|---|---|
-| `draft` | Employee (auto on first save) | Employee | Auto-saved locally and to DB |
+| `draft` | Employee (auto on first save) or cycle reset | Employee | Auto-saved locally and to DB |
 | `pending_review` | Employee (explicit submit) | Nobody | Manager notified |
 | `returned` | Manager | Employee | Manager's notes shown to employee |
-| `approved` | Manager | Nobody (read-only) | Employee notified; all fields locked |
+| `approved` | Manager | Nobody (read-only) | Employee notified; snapshot created automatically |
+
+### Cycle-Aware Status Logic
+
+A form's `approved` status is only meaningful when it belongs to the **active** cycle. If the form was approved in a previous closed cycle, the employee's current dashboard shows `draft` (not `approved`):
+
+```typescript
+const formBelongsToActiveCycle = !activeCycle || !formCycleId || formCycleId === activeCycle.id;
+const isApproved = formStatus === 'approved' && formBelongsToActiveCycle;
+const isLocked   = isApproved || (formStatus === 'pending_review' && formBelongsToActiveCycle);
+```
 
 ---
 
@@ -56,7 +93,7 @@ Step 4: Certifications
 Step 5: Plans & Submit
 ```
 
-Step navigation is managed by `FormContext` (`currentStep` state). The actual form data for Step 1 is managed by React Hook Form; Steps 2–5 use local `useState` inside `SkillFormPage`.
+Step navigation is managed by `FormContext` (`currentStep` state). Step 1 form data is managed by React Hook Form; Steps 2–5 use local `useState` inside `SkillFormPage`.
 
 ---
 
@@ -85,13 +122,15 @@ Step navigation is managed by `FormContext` (`currentStep` state). The actual fo
 
 Grade and designation fields use a **select-only searchable dropdown** — the user can type to filter the list, but only clicking a listed option sets a valid value. Free-text that does not match any option is rejected at validation time.
 
-The Zod schema receives the valid options list at runtime (after options load from Supabase). If a pre-filled grade (e.g. from an old review cycle) is no longer valid, the schema rejects it with: `"M10" is not a valid grade — please select from the list`.
+The Zod schema receives the valid options list at runtime (after options load from Supabase). If a pre-filled grade is no longer valid, the schema rejects it with: `"M10" is not a valid grade — please select from the list`.
 
 Designation options are filtered by the selected grade. Selecting a new grade clears the designation field.
 
 ### Pre-population
 
-When a form record exists in the DB, fields are pre-populated from `skill_forms`. The manager is resolved from `skill_forms.manager_id` (preferred) or `users.manager_id` as a fallback.
+When a form record exists in the DB for the active cycle, fields are pre-populated from `skill_forms`. The manager is resolved from `skill_forms.manager_id` (preferred) or `users.manager_id` as a fallback.
+
+If no form exists for the active cycle, fields default to the user's profile values from the `users` table.
 
 ---
 
@@ -134,7 +173,7 @@ Step 2 exposes a `validate()` method via `useImperativeHandle`. When the employe
 
 A table of environment/infrastructure/OS/management system skills. Same structure as languages/frameworks (name, employee rating, manager rating, manager comment).
 
-Options come from `settings_environments`. The `is_haptiq_demand` flag on environment records is used in reporting to highlight skills the company prioritises.
+Options come from `settings_environments`. The `is_haptiq_demand` flag on environment records highlights skills the company prioritises in reports.
 
 The `validate()` method rejects rows with empty names.
 
@@ -180,7 +219,7 @@ The "Submit for Manager Review" button opens a confirmation modal. After confirm
 | Typing in Step 1 fields | Debounced 500 ms write to `localStorage` |
 | Clicking "Save Draft" | Full `persistForm('draft')` to Supabase |
 | Clicking "Next" | Calls `handleSaveDraft()` → `persistForm('draft')` before advancing |
-| Page load | If a DB form exists, `localStorage` draft is discarded; DB is source of truth |
+| Page load | If a DB form exists for the active cycle, `localStorage` draft is discarded; DB is source of truth |
 
 ---
 
@@ -193,10 +232,57 @@ When a manager opens a form from their Inbox:
 3. Manager-editable fields (ratings, comments, expectation plan) are active
 4. `manager_review_date` is set on the form record on first open
 5. The manager can:
-   - **Approve** — sets `status = 'approved'`, `approved_at = now()`, notifies employee
+   - **Approve** — sets `status = 'approved'`, `approved_at = now()`, notifies employee; the `trg_skill_form_approval_snapshot` trigger automatically creates a snapshot in `skill_form_versions`
    - **Return** — sets `status = 'returned'`, saves a return reason in the form, notifies employee
 
 Manager changes to skill items (ratings, comments) are saved when the manager clicks Approve or Return, not continuously.
+
+---
+
+## Approval Snapshot
+
+When a manager approves a form, the Postgres trigger `trg_skill_form_approval_snapshot` fires automatically:
+
+```
+AFTER UPDATE on skill_forms WHERE status = 'approved'
+  └── create_approval_snapshot() [SECURITY DEFINER]
+        ├── Reads all skill_items for the form
+        ├── Builds JSONB: { ...skill_forms columns, skill_items: [...] }
+        └── INSERT INTO skill_form_versions (employee_id, cycle_id, snapshot_data, approved_at)
+              ON CONFLICT (employee_id, cycle_id) DO UPDATE
+```
+
+The snapshot is the single permanent historical record for that employee in that cycle. Once the cycle is closed, this snapshot is used for all historical views.
+
+---
+
+## Viewing Historical Assessments
+
+Employees, managers, and admins can view previous cycles using the `CycleSelectorDropdown`. When a closed cycle is selected:
+
+1. The page switches to read-only mode
+2. Data is loaded from `skill_form_versions.snapshot_data` for that cycle
+3. A yellow banner indicates the user is viewing a historical (read-only) record
+4. All edit buttons and submit actions are hidden
+
+```
+CycleSelectorDropdown
+  ├── 'current' → loads from skill_forms (live, active cycle)
+  └── <closed cycle UUID> → loads from skill_form_versions (snapshot, read-only)
+```
+
+---
+
+## PDF Export
+
+After a form is approved, a PDF download button is available on the employee's dashboard and on the manager review page. The PDF is generated client-side using jsPDF and includes:
+
+- Employee profile information
+- Skill ratings with employee and manager ratings side-by-side
+- Delta indicators when a previous cycle's ratings are available (shows improvement or regression)
+- Certifications
+- Upskilling plan and manager expectation plan
+- Haptiq branding (header logo, footer)
 
 ---
 
@@ -218,7 +304,7 @@ On every `persistForm()` call:
 
 ```
 1. Resolve manager_id from the manager email field
-2. Upsert skill_forms (creates or updates the single form record)
+2. Upsert skill_forms (creates or updates; always sets cycle_id = activeCycle.id)
 3. Update users table (denormalize grade, designation, manager_id back to the user profile)
 4. Call refreshProfile() on AuthContext
 5. Delete all existing skill_items for this form

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The test suite uses **Vitest** with **@testing-library/react** for component and hook tests. All tests live under `src/test/`. There are currently **212 tests across 12 test files**.
+The test suite uses **Vitest** with **@testing-library/react** for component and hook tests. All tests live under `src/test/`. There are currently **212+ tests across 14 test files**.
 
 Run the full suite:
 
@@ -20,6 +20,7 @@ npx vitest run     # single run, CI
 | `schema.test.ts` | Zod schemas, form constants, factories | 59 |
 | `ToastContext.test.tsx` | Toast rendering, auto-dismiss, limits | 14 |
 | `AuthContext.test.tsx` | Auth state, sign-in/out, error guard | 12 |
+| `CycleContext.test.tsx` | Cycle context state, active cycle, Realtime | ~15 |
 | `FormContext.test.tsx` | Form context state, setters, error guard | 12 |
 | `useSkillRatings.test.ts` | Skill ratings hook (DB fetch, fallback) | 13 |
 | `exportServiceHelpers.test.ts` | Pure export utility functions | 27 |
@@ -54,7 +55,7 @@ npx vitest run     # single run, CI
 
 **`step1Schema` required fields** — all mandatory profile fields reject empty values.
 
-**Manager cross-field validation**:
+**Manager cross-field validation:**
 - Both empty → pass
 - Both provided with valid email → pass
 - Name set, email empty → fail with "Manager email is required when manager name is provided"
@@ -82,7 +83,7 @@ Separated into **real-timer** and **fake-timer** groups to avoid `userEvent`/`vi
 | Error when used outside provider | Real timers |
 | `aria-live="polite"` region present | Real timers |
 
-**Key pattern for fake-timer tests**: use `await act(async () => { button.click(); })` rather than `await userEvent.click()`, then advance timers inside separate `await act(async () => { vi.advanceTimersByTime(n); })` calls.
+**Key pattern for fake-timer tests:** use `await act(async () => { button.click(); })` rather than `await userEvent.click()`, then advance timers inside separate `await act(async () => { vi.advanceTimersByTime(n); })` calls.
 
 ---
 
@@ -99,6 +100,24 @@ Supabase is fully mocked using `vi.hoisted()` to ensure mock variables are initi
 | Error guard — throws outside AuthProvider | 1 |
 
 The mock chain: `getSession → { data: { session } }`, `from().select().eq().maybeSingle() → { data: profile }`.
+
+---
+
+### Cycle Context (`CycleContext.test.tsx`)
+
+Supabase is fully mocked. Tests verify the cycle data fetching and selection logic.
+
+| Scenario | Tests |
+|----------|-------|
+| No cycles in DB — `activeCycle` is null, `cycles` is empty | 2 |
+| Active cycle present — `activeCycle` set correctly | 2 |
+| Multiple cycles — `activeCycle` identifies the one with `status = 'active'` | 2 |
+| `cycles` array contains all cycles including closed ones | 2 |
+| `loading` starts true, resolves to false after fetch | 2 |
+| Error guard — `useCycle()` throws outside `CycleProvider` | 1 |
+| Realtime subscription set up on `review_cycles` channel | 2 |
+
+**Key invariant tested:** `activeCycle` is always the cycle with `status = 'active'`, regardless of position in the array.
 
 ---
 
@@ -200,6 +219,16 @@ vi.mock('../lib/supabaseClient', () => ({
 }));
 ```
 
+For RPC calls, mock `supabase.rpc`:
+
+```typescript
+const { mockRpc } = vi.hoisted(() => ({ mockRpc: vi.fn() }));
+
+vi.mock('../lib/supabaseClient', () => ({
+  supabase: { from: mockFrom, rpc: mockRpc },
+}));
+```
+
 ### React Router
 
 Wrap components in `<MemoryRouter>` for components that use `useNavigate` or `<Link>`.
@@ -207,6 +236,57 @@ Wrap components in `<MemoryRouter>` for components that use `useNavigate` or `<L
 ### Fake timers
 
 Use `vi.useFakeTimers()` / `vi.useRealTimers()` in `beforeEach`/`afterEach`. Never mix `userEvent` async clicks with fake timers — use direct `.click()` calls wrapped in `await act(async () => { ... })`.
+
+---
+
+## Recommended New Tests
+
+The following tests should be added to improve coverage of the cycle system:
+
+### Cycle-Aware `isApproved` Logic
+
+Test the derived values in `SkillFormPage`:
+
+| Scenario | Expected |
+|----------|----------|
+| Form `status = 'approved'` AND `cycle_id = activeCycle.id` | `isApproved = true`, form locked |
+| Form `status = 'approved'` AND `cycle_id ≠ activeCycle.id` (old cycle) | `isApproved = false`, form editable |
+| Form `status = 'pending_review'` AND belongs to active cycle | `isLocked = true` |
+| Form `status = 'pending_review'` AND belongs to old cycle | `isLocked = false` |
+| No `activeCycle` | Falls back to raw `status` check |
+
+### CycleSelectorDropdown (`buildCycleOptions`)
+
+The `buildCycleOptions` pure function in `CycleSelectorDropdown.tsx` is unit-testable:
+
+| Scenario | Expected |
+|----------|----------|
+| No active cycle, no closed cycles | Returns one "No active cycle" option |
+| Active cycle, no closed cycles | Returns one current option only |
+| Active cycle + 2 closed cycles | Returns 3 options; current first, closed sorted newest-first |
+| Closed cycles sorted by `closed_at` descending | Most recently closed appears second |
+| `isCurrent` flag set correctly | Only the first option has `isCurrent = true` |
+
+### Historical Snapshot Loading
+
+Mock `supabase.from('skill_form_versions')` and verify:
+
+| Scenario | Expected |
+|----------|----------|
+| Closed cycle selected | Loads from `skill_form_versions`, not `skill_forms` |
+| No snapshot found for a closed cycle | Shows "No approved assessment found" message |
+| Snapshot found | Displays read-only data from `snapshot_data` |
+| Switch from history to current | Re-loads from `skill_forms` |
+
+### `activate_cycle_reset_forms` RPC Call
+
+Mock `supabase.rpc` and verify `CyclesPage.handleActivate`:
+
+| Scenario | Expected |
+|----------|----------|
+| RPC succeeds | Cycle shows as active in UI, success toast shown |
+| RPC returns error | Error toast shown, cycle status unchanged |
+| RPC called with correct `p_cycle_id` | Argument matches the activated cycle's `id` |
 
 ---
 
@@ -229,7 +309,9 @@ npx vitest run --coverage
 
 The following are intentionally excluded from unit tests — they require live Supabase or a running browser:
 
-- `SkillFormPage` — complex multi-step form with DB reads/writes
+- `SkillFormPage` — complex multi-step form with DB reads/writes and cycle context
 - `ManagerReviewPage`, `AdminPage`, `TmgDashboardPage` — require authenticated sessions
+- `CyclesPage` — requires live Supabase RPC and Realtime
 - Edge functions (`admin-create-user`, `admin-reset-password`, etc.) — tested via Supabase dashboard
-- Export service (`exportService.ts`) XLSX generation — DOM and blob APIs not available in jsdom; helper functions are tested via `exportServiceHelpers.test.ts`
+- Export service (`exportService.ts`) XLSX/PDF generation — DOM and blob APIs not available in jsdom; helper functions are tested via `exportServiceHelpers.test.ts`
+- `skill_form_versions` snapshot trigger — requires live Postgres trigger execution

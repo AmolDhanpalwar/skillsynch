@@ -9,11 +9,15 @@ SkillSync uses **Supabase Postgres** as its sole data store. The schema is appli
 - [Schema Diagram](#schema-diagram)
 - [Core Tables](#core-tables)
   - [users](#users)
+  - [review_cycles](#review_cycles)
   - [skill_forms](#skill_forms)
+  - [skill_form_versions](#skill_form_versions)
   - [skill_items](#skill_items)
   - [notifications](#notifications)
 - [Settings Master Tables](#settings-master-tables)
 - [Views](#views)
+- [SECURITY DEFINER Functions](#security-definer-functions)
+- [Triggers](#triggers)
 - [Row Level Security](#row-level-security)
 - [Helper Functions](#helper-functions)
 - [Migrations](#migrations)
@@ -35,66 +39,44 @@ users ────────────────────────�
   is_active
   created_at
     │
-    ├──── skill_forms
-    │       id (PK)
-    │       employee_id (FK → users)
-    │       manager_id (FK → users, nullable)
-    │       status (draft|pending_review|returned|approved)
-    │       grade, designation, employee_name, employee_email
-    │       employee_number, current_project
-    │       total_exp, relevant_exp, haptiq_exp (numeric)
-    │       tools, databases (text)
-    │       tools_manager_comment, databases_manager_comment
-    │       environments_manager_comment
-    │       certifications (text[])
-    │       upskilling_plan, manager_expectation_plan (text)
-    │       submitted_at, approved_at, manager_review_date
-    │       created_at, updated_at
-    │           │
-    │           └──── skill_items
-    │                   id (PK)
-    │                   form_id (FK → skill_forms)
-    │                   category (language|framework|environment)
-    │                   name (text)
-    │                   employee_rating (smallint 0–4, nullable)
-    │                   manager_rating (smallint 0–4, nullable)
-    │                   manager_comment (text)
-    │                   sort_order (smallint)
-    │
-    └──── notifications
-            id (PK)
-            user_id (FK → users)
-            type (text)
-            message (text)
-            is_read (boolean, default false)
-            form_id (FK → skill_forms, nullable)
-            created_at
+    ├──── skill_forms ──────────────────────────────────────┐
+    │       id (PK)                                         │
+    │       employee_id (FK → users)                        │
+    │       manager_id (FK → users, nullable)               │
+    │       cycle_id (FK → review_cycles)                   │
+    │       status (draft|pending_review|returned|approved) │
+    │       grade, designation, employee_name, ...          │
+    │       submitted_at, approved_at                       │
+    │           │                                           │
+    │           └──── skill_items                           │
+    │                   form_id (FK → skill_forms, CASCADE) │
+    │                   category, name                      │
+    │                   employee_rating, manager_rating     │
+    │                   manager_comment, sort_order         │
+    │                                                       │
+    └──── skill_form_versions  ◄─── (trigger from approve) ┘
+            employee_id (FK → users)
+            cycle_id (FK → review_cycles)
+            snapshot_data (JSONB)
+            approved_at
+            UNIQUE (employee_id, cycle_id)
 
-settings_grades
+review_cycles
   id (PK)
-  name (text, unique)
-  sort_order (int)
-  is_active (boolean)
+  name
+  cycle_type (annual|mid_year|quarterly)
+  status (draft|active|closed)
+  created_at, activated_at, closed_at
 
-settings_designations
-  id (PK)
-  grade_id (FK → settings_grades)
-  name (text)
-  is_active (boolean)
-
-settings_certifications | settings_languages | settings_frameworks
-settings_tools          | settings_databases | settings_environments
-  id (PK)
-  name (text, unique)
-  is_active (boolean)
+notifications
+  user_id (FK → users)
+  type, message, is_read
+  form_id (FK → skill_forms, nullable)
   created_at
-  [settings_environments also has: is_haptiq_demand (boolean)]
 
+settings_grades | settings_designations | settings_languages | settings_frameworks
+settings_tools  | settings_databases    | settings_environments | settings_certifications
 settings_skill_ratings
-  id (PK)
-  sort_order (int, unique)
-  label (text)
-  is_active (boolean)
 ```
 
 ---
@@ -122,6 +104,22 @@ Mirrors `auth.users` with additional profile fields. Created automatically when 
 
 ---
 
+### review_cycles
+
+One record per review cycle. Only one cycle may have `status = 'active'` at a time.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `uuid` | PK, `gen_random_uuid()` |
+| `name` | `text` | Display name, e.g. `"Mid Year Cycle 2026"` |
+| `cycle_type` | `text` | `annual` \| `mid_year` \| `quarterly` |
+| `status` | `text` | `draft` \| `active` \| `closed` |
+| `created_at` | `timestamptz` | Default `now()` |
+| `activated_at` | `timestamptz` | Set when status → `active` |
+| `closed_at` | `timestamptz` | Set when status → `closed` |
+
+---
+
 ### skill_forms
 
 One record per employee per review cycle. Upserted on every Save Draft or submission.
@@ -131,6 +129,7 @@ One record per employee per review cycle. Upserted on every Save Draft or submis
 | `id` | `uuid` | PK, `gen_random_uuid()` |
 | `employee_id` | `uuid` | FK → `users(id)` |
 | `manager_id` | `uuid` | FK → `users(id)`, nullable |
+| `cycle_id` | `uuid` | FK → `review_cycles(id)` |
 | `status` | `text` | `draft` \| `pending_review` \| `returned` \| `approved` |
 | `employee_name` | `text` | Denormalized from `users.full_name` at save time |
 | `employee_email` | `text` | Denormalized |
@@ -155,7 +154,40 @@ One record per employee per review cycle. Upserted on every Save Draft or submis
 | `created_at` | `timestamptz` | Default `now()` |
 | `updated_at` | `timestamptz` | Updated on every upsert |
 
-**Indexes:** `employee_id`, `manager_id`, `status`.
+**Indexes:** `employee_id`, `manager_id`, `status`, `cycle_id`.
+
+---
+
+### skill_form_versions
+
+Immutable JSONB snapshots of approved forms. One record per employee per cycle. Written by the `create_approval_snapshot()` trigger — never written directly from the frontend.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `uuid` | PK |
+| `employee_id` | `uuid` | FK → `users(id)` |
+| `cycle_id` | `uuid` | FK → `review_cycles(id)` |
+| `snapshot_data` | `jsonb` | Full denormalized snapshot: form fields + `skill_items[]` |
+| `approved_at` | `timestamptz` | Copied from the form at snapshot time |
+| `created_at` | `timestamptz` | Default `now()` |
+
+**Unique constraint:** `(employee_id, cycle_id)` — one snapshot per employee per cycle. On re-approval it updates (UPSERT).
+
+**`snapshot_data` shape:**
+```json
+{
+  "id": "...",
+  "employee_name": "...",
+  "grade": "...",
+  "designation": "...",
+  "status": "approved",
+  "cycle_id": "...",
+  "skill_items": [
+    { "category": "language", "name": "Python", "employee_rating": 3, "manager_rating": 3, "manager_comment": "" }
+  ],
+  ...all other skill_forms columns...
+}
+```
 
 ---
 
@@ -180,7 +212,7 @@ Individual skill rows inside a form. Deleted and re-inserted on every save.
 
 ### notifications
 
-In-app notification feed. Inserted by server-side code (after submit, approve, return).
+In-app notification feed. Inserted by client-side code after submit/approve/return.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -196,12 +228,12 @@ In-app notification feed. Inserted by server-side code (after submit, approve, r
 
 ## Settings Master Tables
 
-All settings tables share the same basic shape. They are managed via the Settings and Employee Settings pages (TMG / admin only).
+All settings tables share the same basic shape. Managed via the Settings and Employee Settings pages (TMG / admin only).
 
 | Table | Extra columns | Purpose |
 |---|---|---|
-| `settings_grades` | `sort_order`, `id` (uuid PK) | Grade levels (IC01–IC12, MGMT05–MGMT15) |
-| `settings_designations` | `grade_id` (FK) | Job titles grouped by grade |
+| `settings_grades` | `sort_order` | Grade levels (IC01–IC12, MGMT05–MGMT15) |
+| `settings_designations` | `grade_id` (FK → settings_grades) | Job titles grouped by grade |
 | `settings_languages` | — | Programming languages master list |
 | `settings_frameworks` | — | Frameworks / libraries master list |
 | `settings_tools` | — | Tools (CI/CD, IDE, monitoring, etc.) |
@@ -218,7 +250,49 @@ All settings tables include `is_active` (boolean, default `true`). Deactivated r
 
 ### `privileged_skill_forms_view`
 
-A view joining `skill_forms` with the manager's name and employee details. Used by TMG/management dashboards. Only accessible to users with `tmg`, `management`, or `admin` roles via RLS on the underlying tables.
+A view joining `skill_forms` with the manager's `full_name` and employee profile fields. Used by TMG/management dashboards. Only accessible to users with `tmg`, `management`, or `admin` roles via RLS on the underlying tables.
+
+---
+
+## SECURITY DEFINER Functions
+
+These functions run as the `postgres` superuser role and bypass RLS. Required for cycle state transitions that need to update rows not owned by the calling user.
+
+### `activate_cycle_reset_forms(p_cycle_id uuid)`
+
+Called via `supabase.rpc('activate_cycle_reset_forms', { p_cycle_id })` from `CyclesPage` when a manager or TMG activates a new review cycle.
+
+**What it does:**
+1. Sets `review_cycles.status = 'active'`, `activated_at = now()` for the given cycle
+2. Sets all other cycles' `status = 'closed'` (or `'draft'` if they were never activated) where status was `'active'`
+3. Resets **all** `skill_forms` rows: `status = 'draft'`, `cycle_id = p_cycle_id`, clears `submitted_at`, `approved_at`
+
+**Grant:** `GRANT EXECUTE ON FUNCTION activate_cycle_reset_forms(uuid) TO authenticated;`
+
+### `create_approval_snapshot()` (trigger function)
+
+Not called directly — fires automatically via `trg_skill_form_approval_snapshot`.
+
+**What it does:**
+1. Reads all `skill_items` for the approved form
+2. Builds a JSONB document containing all `skill_forms` columns plus `skill_items[]`
+3. Upserts into `skill_form_versions` on `(employee_id, cycle_id)`
+
+---
+
+## Triggers
+
+### `trg_skill_form_approval_snapshot`
+
+```sql
+CREATE TRIGGER trg_skill_form_approval_snapshot
+  AFTER UPDATE ON skill_forms
+  FOR EACH ROW
+  WHEN (OLD.status IS DISTINCT FROM NEW.status AND NEW.status = 'approved')
+  EXECUTE FUNCTION create_approval_snapshot();
+```
+
+Fires once per approval event. The resulting snapshot in `skill_form_versions` is the permanent historical record for that employee in that cycle.
 
 ---
 
@@ -226,30 +300,46 @@ A view joining `skill_forms` with the manager's name and employee details. Used 
 
 RLS is **enabled on every table**. After RLS is enabled, no rows are accessible by default — every access pattern requires an explicit policy.
 
-### Key Policies
-
-#### users table
+### users table
 
 | Operation | Who | Condition |
 |---|---|---|
 | SELECT | All authenticated | Any active user (needed for manager lookups) |
 | INSERT | Admin / Edge Function | Service role only |
-| UPDATE | Authenticated | Own record (`auth.uid() = id`), OR TMG/admin updating any |
-| DELETE | Admin only | `get_my_role() IN ('admin')` |
+| UPDATE | Authenticated | Own record (`auth.uid() = id`), OR `get_my_role() IN ('tmg', 'admin')` |
+| DELETE | Admin only | `get_my_role() = 'admin'` |
 
-#### skill_forms table
+### review_cycles table
+
+| Operation | Who | Condition |
+|---|---|---|
+| SELECT | All authenticated | All cycles visible |
+| INSERT | TMG / admin | `get_my_role() IN ('tmg', 'admin')` |
+| UPDATE | TMG / admin | `get_my_role() IN ('tmg', 'admin')` |
+| DELETE | Admin only | `get_my_role() = 'admin'` |
+
+### skill_forms table
 
 | Operation | Who | Condition |
 |---|---|---|
 | SELECT | Employee | `employee_id = auth.uid()` |
 | SELECT | Manager | `manager_id = auth.uid()` |
-| SELECT | TMG / management / admin | `get_my_role() IN (...)` |
+| SELECT | TMG / management / admin | `get_my_role() IN ('tmg', 'management', 'admin')` |
 | INSERT | Employee | `employee_id = auth.uid()` |
 | UPDATE | Employee | Own form AND status is `draft` or `returned` |
 | UPDATE | Manager | `manager_id = auth.uid()` |
-| UPDATE | TMG / admin | Any form |
+| UPDATE | TMG / admin | `get_my_role() IN ('tmg', 'admin')` |
 
-#### skill_items table
+### skill_form_versions table
+
+| Operation | Who | Condition |
+|---|---|---|
+| SELECT | Employee | `employee_id = auth.uid()` |
+| SELECT | TMG / management / admin | `get_my_role() IN ('tmg', 'management', 'admin')` |
+| SELECT | Manager | Via `manager_id` on the parent form |
+| INSERT / UPDATE | SECURITY DEFINER function only | Not accessible from the anon key |
+
+### skill_items table
 
 | Operation | Who | Condition |
 |---|---|---|
@@ -259,22 +349,26 @@ RLS is **enabled on every table**. After RLS is enabled, no rows are accessible 
 | INSERT / DELETE | Employee | Own forms (draft/returned only) |
 | INSERT / DELETE | Manager | Forms assigned to them |
 
-#### notifications table
+### notifications table
 
 | Operation | Who | Condition |
 |---|---|---|
 | SELECT | Authenticated | `user_id = auth.uid()` |
-| INSERT | Authenticated | `user_id = auth.uid()` (triggered after form submit) |
+| INSERT | Authenticated | `user_id = auth.uid()` |
 | UPDATE | Authenticated | Own records (mark read) |
 
-#### settings tables
+### settings tables
 
 | Operation | Who | Condition |
 |---|---|---|
 | SELECT | All authenticated | Any active user |
 | INSERT / UPDATE / DELETE | TMG / admin | `get_my_role() IN ('tmg', 'admin')` |
 
-### Helper Function: `get_my_role()`
+---
+
+## Helper Functions
+
+### `get_my_role()`
 
 ```sql
 CREATE OR REPLACE FUNCTION get_my_role()
@@ -286,13 +380,13 @@ AS $$
 $$;
 ```
 
-Used in policies to avoid recursive `SELECT` on the `users` table inside RLS checks.
+Used in RLS policies to avoid recursive `SELECT` on the `users` table inside RLS checks. Declared `STABLE` so Postgres can cache the result within a single query.
 
 ---
 
 ## Migrations
 
-Migrations are in `supabase/migrations/` and are applied in filename order (timestamp-prefixed).
+Migrations are in `supabase/migrations/` and are applied in filename order (timestamp-prefixed). Apply via `mcp__supabase__apply_migration`.
 
 ### Current Migrations
 
@@ -321,7 +415,9 @@ Migrations are in `supabase/migrations/` and are applied in filename order (time
 | `20260520160626_add_environments_skill_category.sql` | Adds `environment` to `skill_items.category` enum |
 | `20260520165114_add_settings_skill_ratings.sql` | Adds `settings_skill_ratings` table |
 | `20260520171119_add_is_haptiq_demand_to_skill_masters.sql` | Adds `is_haptiq_demand` to `settings_environments` |
-| `20260520173855_reset_all_skill_forms_to_draft.sql` | One-time reset: all forms back to draft for data correction cycle |
+| `20260520173855_reset_all_skill_forms_to_draft.sql` | One-time reset: all forms back to draft for data correction |
+| `20260526160937_20260526000001_add_review_cycles_and_versioning.sql` | Adds `review_cycles` table, `skill_form_versions` table, `cycle_id` FK on `skill_forms`, `CycleType` enum labels, RLS policies for both new tables |
+| `20260528084913_create_missing_snapshots_and_approval_trigger.sql` | Backfills 4 missing snapshots for closed cycle, creates `create_approval_snapshot()` SECURITY DEFINER trigger function, creates `trg_skill_form_approval_snapshot` trigger, creates `activate_cycle_reset_forms()` SECURITY DEFINER RPC function |
 
 ### Adding a New Migration
 
@@ -341,7 +437,7 @@ mcp__supabase__apply_migration(
 - Never use `DROP` or `DELETE` on production data
 - Never use explicit transaction control (`BEGIN` / `COMMIT`)
 
-**After applying a migration, update `supabase/full_schema.sql` to keep it in sync.** The full schema file is the single-file disaster recovery script — it must always reflect the current state of all migrations combined.
+**After applying a migration, update `supabase/full_schema.sql` to keep it in sync.**
 
 ---
 
@@ -354,6 +450,4 @@ mcp__supabase__apply_migration(
 - Recovering from catastrophic database loss
 - Syncing a staging or QA environment
 
-**Do not** include this file in the normal migrations sequence. It is a snapshot for disaster recovery, not an incremental migration.
-
-**To apply it:** paste the contents into the Supabase SQL Editor and click Run.
+**To apply it:** paste the contents into the Supabase SQL Editor and click Run. Do not include it in the normal migrations sequence.

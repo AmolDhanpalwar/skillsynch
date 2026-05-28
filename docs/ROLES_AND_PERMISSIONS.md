@@ -10,11 +10,12 @@ SkillSync has five user roles. Role is stored in `users.role` and drives both cl
 
 A regular team member who fills out the skill assessment form.
 
-- Has exactly one skill form per cycle
+- Has exactly one skill form per review cycle
 - Can save drafts and submit for review
-- Can view and re-edit their form only when in `draft` or `returned` state
+- Can view and re-edit their form only when in `draft` or `returned` state within the active cycle
 - Cannot view other employees' forms
 - Receives notifications when their form is approved or returned
+- Can view their own historical assessments (read-only) via the cycle selector on the dashboard
 
 ### `manager`
 
@@ -25,26 +26,29 @@ A team lead or direct-line manager who reviews their direct reports' forms.
 - Can approve or return forms (with a reason)
 - Can view direct reports' profiles in the user list
 - Cannot submit or edit their own employee-level form (unless they also have an employee form assigned)
+- Receives `form_submitted` notifications when any of their direct reports submits
 
 ### `tmg` (Technical Manager Group)
 
 Senior technical leaders with cross-team visibility.
 
-- Can view **all** skill forms across all employees
+- Can view **all** skill forms across all employees and all cycles
 - Can edit any form (reassign managers, update grade/designation)
-- Access to Skills Matrix, TMG Dashboard, Status page
+- Access to Skills Matrix, TMG Dashboard, Cycles, and Status pages
 - Can manage master settings: skills, certifications, grades, designations, rating scales
 - Can change which manager is assigned to any employee's form
-- Receives admin-level notifications
+- Can create and activate review cycles
+- Can view historical cycle data via the cycle selector
 
 ### `management`
 
 Business or function heads with read-only analytics access.
 
-- Can view all skill forms (read-only)
-- Access to Reports, Skills Matrix, TMG Dashboard, Status page
+- Can view all skill forms (read-only) for any cycle
+- Access to Reports, Skills Matrix, TMG Dashboard, and Status pages
 - Cannot modify any forms or settings
 - Cannot manage users
+- Cannot create or manage review cycles
 
 ### `admin`
 
@@ -68,6 +72,7 @@ Full system access.
 | Submit form for review | Y | — | — | — | — |
 | Re-submit returned form | Y | — | — | — | — |
 | View own form (any status) | Y | — | — | — | — |
+| View historical own assessments | Y | — | — | — | — |
 | View team members' forms | — | Y | Y | Y | Y |
 | Add manager ratings & comments | — | Y | Y | — | Y |
 | Approve form | — | Y | Y | — | Y |
@@ -76,7 +81,10 @@ Full system access.
 | View Skills Matrix | — | — | Y | Y | Y |
 | View Status page | — | — | Y | Y | Y |
 | View Reports & Analytics | — | — | — | Y | Y |
-| Export data to Excel | — | — | Y | Y | Y |
+| View historical cycle data (any employee) | — | — | Y | Y | Y |
+| Export data to Excel / PDF | — | — | Y | Y | Y |
+| Create & manage review cycles | — | — | Y | — | Y |
+| Activate review cycle (resets all forms) | — | — | Y | — | Y |
 | Manage skill settings (languages, etc.) | — | — | Y | — | Y |
 | Manage grades & designations | — | — | Y | — | Y |
 | Change employee's manager assignment | — | — | Y | — | Y |
@@ -105,6 +113,25 @@ Routes are protected by `<PrivateRoute allowedRoles={[...]} />`. If the authenti
 
 Unauthenticated users hitting any protected route are redirected to `/login`.
 
+### Route Access by Role
+
+| Route | employee | manager | tmg | management | admin |
+|---|:---:|:---:|:---:|:---:|:---:|
+| `/dashboard` | Y | Y | Y | Y | Y |
+| `/form` | Y | — | — | — | — |
+| `/form/review/:formId` | — | Y | Y | — | Y |
+| `/inbox` | — | Y | Y | — | Y |
+| `/inbox/review/:formId` | — | Y | Y | — | Y |
+| `/tmg-dashboard` | — | — | Y | Y | Y |
+| `/skills-matrix` | — | — | Y | Y | Y |
+| `/cycles` | — | — | Y | — | Y |
+| `/status` | — | — | Y | Y | Y |
+| `/reports` | — | — | — | Y | Y |
+| `/settings` | — | — | Y | — | Y |
+| `/emp-settings` | — | — | Y | — | Y |
+| `/admin` | — | — | — | — | Y |
+| `/help/powerbi` | Y | Y | Y | Y | Y |
+
 ### Role Home Paths
 
 After login, each role is sent to their primary landing page:
@@ -131,6 +158,7 @@ The sidebar renders only the links relevant to the authenticated user's role.
 | TMG Dashboard | — | — | Y | Y | Y |
 | Form Status | — | — | Y | Y | Y |
 | Skills Matrix | — | — | Y | Y | Y |
+| Review Cycles | — | — | Y | — | Y |
 | Reports | — | — | — | Y | Y |
 | Skills Settings | — | — | Y | — | Y |
 | Employee Settings | — | — | Y | — | Y |
@@ -161,7 +189,20 @@ CREATE POLICY "TMG and admin can update any form"
   WITH CHECK (get_my_role() IN ('tmg', 'admin'));
 ```
 
-See [DATABASE.md](DATABASE.md) for the complete set of RLS policies.
+See [DATABASE.md — Row Level Security](DATABASE.md#row-level-security) for the complete set of RLS policies.
+
+---
+
+## SECURITY DEFINER Functions
+
+Some operations require bypassing RLS because they involve updating rows not owned by the calling user. These use SECURITY DEFINER PostgreSQL functions that run as the `postgres` superuser role:
+
+| Function | Who can call | Why RLS bypass is needed |
+|---|---|---|
+| `activate_cycle_reset_forms(p_cycle_id)` | `authenticated` (tmg/admin in practice) | Must reset ALL employees' `skill_forms` to `draft`, including rows not owned by the caller |
+| `create_approval_snapshot()` | Postgres trigger (internal only) | Must write to `skill_form_versions` which has no direct-write policy for the anon key |
+
+**Principle of least privilege:** only `activate_cycle_reset_forms` is `GRANT EXECUTE TO authenticated`. The snapshot function is only callable via the trigger — it is not exposed as an RPC.
 
 ---
 
