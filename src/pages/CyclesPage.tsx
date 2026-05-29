@@ -532,52 +532,78 @@ export default function CyclesPage() {
   const [defaultersDrawer, setDefaultersDrawer] = useState<{ cycle: ReviewCycle; type: 'employee' | 'manager' } | null>(null);
   const [expandedCycle, setExpandedCycle] = useState<string | null>(null);
 
-  const loadProgress = useCallback(async () => {
+  const loadProgress = useCallback(async (cycles: typeof adminCycles) => {
+    if (cycles.length === 0) {
+      setCyclesWithProgress([]);
+      setEmployees([]);
+      setProgressLoading(false);
+      return;
+    }
+
     setProgressLoading(true);
 
+    // Single query: all employees
     const { data: empData } = await supabase
       .from('users')
       .select('id, full_name, email, designation')
-      .eq('role', 'employee');
+      .eq('role', 'employee')
+      .eq('is_active', true);
 
     const empList = empData ?? [];
+    const totalEmployees = empList.length;
 
+    // Fetch forms for all relevant cycle ids in one shot
+    const cycleIds = cycles.map((c) => c.id);
     const { data: formsData } = await supabase
       .from('skill_forms')
-      .select('id, employee_id, status, cycle_id');
+      .select('id, employee_id, status, cycle_id')
+      .in('cycle_id', cycleIds);
 
-    const formsByEmployee: Record<string, { id: string; status: FormStatus; cycle_id: string | null }> = {};
-    (formsData ?? []).forEach((f) => {
-      formsByEmployee[f.employee_id] = { id: f.id, status: f.status as FormStatus, cycle_id: f.cycle_id };
-    });
+    const allForms = formsData ?? [];
 
+    // Build per-cycle form lookup: cycleId → { employeeId → form }
+    const formsByCycle: Record<string, Record<string, { id: string; status: FormStatus }>> = {};
+    for (const f of allForms) {
+      if (!f.cycle_id) continue;
+      if (!formsByCycle[f.cycle_id]) formsByCycle[f.cycle_id] = {};
+      formsByCycle[f.cycle_id][f.employee_id] = { id: f.id, status: f.status as FormStatus };
+    }
+
+    // Build employee rows keyed to the active cycle (for defaulters drawer)
+    const activeCycleId = cycles.find((c) => c.status === 'active')?.id ?? null;
+    const activeCycleForms = activeCycleId ? (formsByCycle[activeCycleId] ?? {}) : {};
     const empRows: EmployeeRow[] = empList.map((e) => ({
       id: e.id,
       full_name: e.full_name,
       email: e.email,
       designation: e.designation ?? '',
-      form_status: formsByEmployee[e.id]?.status ?? null,
-      form_id: formsByEmployee[e.id]?.id ?? null,
-      cycle_id: formsByEmployee[e.id]?.cycle_id ?? null,
+      form_status: activeCycleForms[e.id]?.status ?? null,
+      form_id: activeCycleForms[e.id]?.id ?? null,
+      cycle_id: activeCycleId,
     }));
-
     setEmployees(empRows);
 
-    const withProgress = adminCycles.map((cycle) => {
-      const cycleEmployees = empRows.filter((e) => e.cycle_id === cycle.id);
-      const notStarted = empRows.filter((e) => !e.cycle_id || e.cycle_id !== cycle.id);
+    const withProgress = cycles.map((cycle) => {
+      const cycleForms = formsByCycle[cycle.id] ?? {};
+      const employeesWithForm = Object.values(cycleForms);
+
+      const approved = employeesWithForm.filter((f) => f.status === 'approved').length;
+      const pending_review = employeesWithForm.filter((f) => f.status === 'pending_review').length;
+      const returned = employeesWithForm.filter((f) => f.status === 'returned').length;
+      const draft = employeesWithForm.filter((f) => f.status === 'draft').length;
+      const not_started = totalEmployees - employeesWithForm.length;
 
       const progress: CycleProgress = {
-        total: empList.length,
-        draft: cycleEmployees.filter((e) => e.form_status === 'draft').length,
-        pending_review: cycleEmployees.filter((e) => e.form_status === 'pending_review').length,
-        returned: cycleEmployees.filter((e) => e.form_status === 'returned').length,
-        approved: cycleEmployees.filter((e) => e.form_status === 'approved').length,
-        not_started: notStarted.length,
+        total: totalEmployees,
+        approved,
+        pending_review,
+        returned,
+        draft,
+        not_started: Math.max(0, not_started),
       };
 
       const blockers = cycle.status === 'active'
-        ? cycleEmployees.filter((e) => e.form_status !== 'approved').length + notStarted.length
+        ? totalEmployees - approved
         : 0;
 
       return { ...cycle, progress, blockers };
@@ -585,11 +611,11 @@ export default function CyclesPage() {
 
     setCyclesWithProgress(withProgress);
     setProgressLoading(false);
-  }, [adminCycles]);
+  }, []);
 
   useEffect(() => {
-    if (!loading) loadProgress();
-  }, [loading, loadProgress]);
+    if (!loading) loadProgress(adminCycles);
+  }, [loading, adminCycles, loadProgress]);
 
   async function handleActivate(cycle: CycleWithProgress) {
     setActivating(true);
@@ -610,7 +636,7 @@ export default function CyclesPage() {
         showToast(`Cycle "${cycle.name}" is now active. All employee forms reset to draft.`, 'success');
       }
       await refresh();
-      await loadProgress();
+      // adminCycles will update after refresh; the useEffect will re-run loadProgress automatically
     }
     setActivating(false);
     setActivatingCycle(null);
@@ -628,7 +654,6 @@ export default function CyclesPage() {
     } else {
       showToast(`Cycle "${cycle.name}" closed.`, 'success');
       await refresh();
-      await loadProgress();
     }
     setClosingId(null);
   }
@@ -648,7 +673,6 @@ export default function CyclesPage() {
       showToast(`Cycle "${cycle.name}" deleted.`, 'success');
       setDeletingCycle(null);
       await refresh();
-      await loadProgress();
     }
   }
 
@@ -667,7 +691,6 @@ export default function CyclesPage() {
       showToast(`Cycle "${cycle.name}" has been suspended and all associated records purged.`, 'success');
       setSuspendingCycle(null);
       await refresh();
-      await loadProgress();
     }
   }
 
@@ -996,7 +1019,7 @@ export default function CyclesPage() {
         <CycleModal
           initial={editingCycle}
           onClose={() => { setShowCreateModal(false); setEditingCycle(null); }}
-          onSaved={() => { refresh(); loadProgress(); }}
+          onSaved={() => { refresh(); }}
         />
       )}
 
