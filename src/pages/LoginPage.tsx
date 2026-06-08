@@ -106,21 +106,31 @@ export default function LoginPage() {
               </div>
             )}
 
-            {/* Google SSO Button — shown only when enabled by admin */}
-            {ssoLoaded && ssoEnabled && (
+            {/* Google SSO Button — always visible once config loaded; disabled when not enabled by admin */}
+            {ssoLoaded && (
               <>
                 <button
                   type="button"
-                  onClick={handleGoogleSignIn}
-                  disabled={googleLoading}
-                  className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 text-sm font-semibold font-heading transition-all shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                  onClick={ssoEnabled ? handleGoogleSignIn : undefined}
+                  disabled={!ssoEnabled || googleLoading}
+                  title={ssoEnabled ? undefined : 'Google sign-in is not enabled. Contact your administrator.'}
+                  className={`w-full flex items-center justify-center gap-3 px-4 py-3 rounded-xl border text-sm font-semibold font-heading transition-all shadow-sm
+                    ${ssoEnabled
+                      ? 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700 cursor-pointer'
+                      : 'border-gray-150 bg-gray-50 text-gray-400 cursor-not-allowed opacity-60'
+                    }`}
                 >
                   {googleLoading ? (
                     <Loader2 size={16} className="animate-spin text-gray-400" />
                   ) : (
                     <GoogleIcon />
                   )}
-                  {googleLoading ? 'Redirecting…' : 'Continue with Google'}
+                  <span>
+                    {googleLoading ? 'Redirecting…' : 'Continue with Google'}
+                    {!ssoEnabled && !googleLoading && (
+                      <span className="ml-1.5 text-[11px] font-normal font-body text-gray-400">(not configured)</span>
+                    )}
+                  </span>
                 </button>
 
                 <div className="flex items-center gap-3">
