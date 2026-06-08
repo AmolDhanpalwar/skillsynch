@@ -6,28 +6,28 @@
 --
 -- KEY DIFFERENCES FROM THE POSTGRESQL VERSION
 -- -------------------------------------------
--- 1. UUIDs          : CHAR(36) + UUID() function (or BIN(16) for performance)
+-- 1. UUIDs          : CHAR(36) + UUID() function
 -- 2. ENUMS          : MySQL native ENUM columns (no separate type objects)
 -- 3. JSONB          : JSON column type (MySQL 8 supports JSON natively)
 -- 4. timestamptz    : DATETIME(6) — store all times in UTC at application level
 -- 5. text[]         : JSON (MySQL has no native array type)
 -- 6. numeric(4,1)   : DECIMAL(4,1)
--- 7. smallint       : SMALLINT
--- 8. boolean        : TINYINT(1)  (0 = false, 1 = true)
--- 9. DEFAULT now()  : DEFAULT CURRENT_TIMESTAMP
--- 10. RLS policies  : Removed — enforce access control in your application/API layer
--- 11. auth.users    : Replaced with a standalone `auth_users` table (or your JWT system)
--- 12. SECURITY DEFINER functions / triggers : converted to MySQL DELIMITER syntax
--- 13. ON CONFLICT DO NOTHING : INSERT IGNORE
--- 14. gen_random_uuid() : UUID()
--- 15. Partial unique index (WHERE clause) : enforced via application logic + trigger
+-- 7. boolean        : TINYINT(1)  (0 = false, 1 = true)
+-- 8. DEFAULT now()  : DEFAULT CURRENT_TIMESTAMP(6)
+-- 9. RLS policies   : Removed — enforce access control in your API layer
+-- 10. auth.users    : Replaced with standalone `auth_users` table
+-- 11. SECURITY DEFINER functions : converted to MySQL STORED PROCEDURES
+-- 12. ON CONFLICT DO NOTHING : INSERT IGNORE
+-- 13. gen_random_uuid() : UUID()
+-- 14. Partial unique index (WHERE clause) : enforced via BEFORE trigger
+-- 15. updated_at auto-update : ON UPDATE CURRENT_TIMESTAMP(6)
 --
 -- HOW TO RUN
 -- ----------
--- mysql -u <user> -p <database> < mysql_schema.sql
--- OR paste into MySQL Workbench / DBeaver and execute.
+--   mysql -u <user> -p <database_name> < mysql_schema.sql
+-- Or paste into MySQL Workbench / DBeaver and execute.
 --
--- Requires MySQL 8.0.13+ for JSON, functional indexes, and RECURSIVE CTEs.
+-- Requires MySQL 8.0.13+ for UUID() in DEFAULT, JSON type, and functional indexes.
 -- ============================================================================
 
 SET NAMES utf8mb4;
@@ -40,9 +40,8 @@ SET sql_mode = 'STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVIS
 -- 1. AUTH_USERS  (replaces Supabase auth.users)
 -- ============================================================================
 -- In the original schema, public.users references auth.users(id).
--- Here we provide a minimal auth_users table. If you use an external auth
--- provider (Firebase Auth, Auth0, custom JWT), replace this with your own
--- users/sessions table and adjust the FK in `users` accordingly.
+-- If you use an external auth provider (Firebase, Auth0, custom JWT),
+-- replace this table and adjust the FK in `users` accordingly.
 
 CREATE TABLE IF NOT EXISTS auth_users (
   id           CHAR(36)      NOT NULL DEFAULT (UUID()),
@@ -54,7 +53,7 @@ CREATE TABLE IF NOT EXISTS auth_users (
 
 
 -- ============================================================================
--- 2. SETTINGS TABLES (no FK dependencies — create first)
+-- 2. SETTINGS TABLES (no FK dependencies — created first)
 -- ============================================================================
 
 -- 2a. settings_grades
@@ -201,45 +200,14 @@ CREATE TABLE IF NOT EXISTS review_cycles (
   created_by        CHAR(36)     DEFAULT NULL,
   notes             TEXT         DEFAULT '',
   created_at        DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  updated_at        DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  updated_at        DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+                                 ON UPDATE CURRENT_TIMESTAMP(6),
   PRIMARY KEY (id),
-  CONSTRAINT fk_cycles_created_by  FOREIGN KEY (created_by)
+  CONSTRAINT fk_cycles_created_by   FOREIGN KEY (created_by)
     REFERENCES users (id) ON DELETE SET NULL,
   CONSTRAINT fk_cycles_suspended_by FOREIGN KEY (suspended_by)
     REFERENCES users (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- NOTE: The original PostgreSQL schema enforces at most one 'active' cycle via a
--- partial unique index (WHERE status = 'active'). MySQL does not support partial
--- unique indexes. Enforce this constraint at the application layer, or use the
--- trigger below.
-
--- Trigger: prevent more than one active cycle at a time
-DELIMITER $$
-CREATE TRIGGER trg_one_active_cycle_insert
-BEFORE INSERT ON review_cycles
-FOR EACH ROW
-BEGIN
-  IF NEW.status = 'active' THEN
-    IF (SELECT COUNT(*) FROM review_cycles WHERE status = 'active') > 0 THEN
-      SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Only one review cycle can be active at a time.';
-    END IF;
-  END IF;
-END$$
-
-CREATE TRIGGER trg_one_active_cycle_update
-BEFORE UPDATE ON review_cycles
-FOR EACH ROW
-BEGIN
-  IF NEW.status = 'active' AND OLD.status <> 'active' THEN
-    IF (SELECT COUNT(*) FROM review_cycles WHERE status = 'active' AND id <> NEW.id) > 0 THEN
-      SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Only one review cycle can be active at a time.';
-    END IF;
-  END IF;
-END$$
-DELIMITER ;
 
 
 -- 3c. skill_forms
@@ -260,7 +228,6 @@ CREATE TABLE IF NOT EXISTS skill_forms (
   databases_manager_comment    TEXT          DEFAULT NULL,
   environments                 TEXT          DEFAULT '',
   environments_manager_comment TEXT          DEFAULT '',
-  -- certifications stored as JSON array (replaces PostgreSQL text[])
   certifications               JSON          DEFAULT NULL,
   upskilling_plan              TEXT          DEFAULT NULL,
   manager_expectation_plan     TEXT          DEFAULT NULL,
@@ -274,7 +241,8 @@ CREATE TABLE IF NOT EXISTS skill_forms (
   manager_review_date          DATETIME(6)   DEFAULT NULL,
   reminders_sent               INT           NOT NULL DEFAULT 0,
   created_at                   DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  updated_at                   DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  updated_at                   DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+                                             ON UPDATE CURRENT_TIMESTAMP(6),
   PRIMARY KEY (id),
   CONSTRAINT fk_sf_employee FOREIGN KEY (employee_id)
     REFERENCES users (id) ON DELETE CASCADE,
@@ -287,27 +255,26 @@ CREATE TABLE IF NOT EXISTS skill_forms (
 
 -- 3d. skill_items
 CREATE TABLE IF NOT EXISTS skill_items (
-  id              CHAR(36)   NOT NULL DEFAULT (UUID()),
-  form_id         CHAR(36)   NOT NULL,
+  id              CHAR(36)     NOT NULL DEFAULT (UUID()),
+  form_id         CHAR(36)     NOT NULL,
   category        ENUM('language','framework','environment') NOT NULL,
   name            VARCHAR(255) NOT NULL,
-  employee_rating SMALLINT   DEFAULT NULL,
-  manager_rating  SMALLINT   DEFAULT NULL,
-  manager_comment TEXT       NOT NULL DEFAULT '',
-  sort_order      SMALLINT   NOT NULL DEFAULT 0,
+  employee_rating SMALLINT     DEFAULT NULL,
+  manager_rating  SMALLINT     DEFAULT NULL,
+  manager_comment TEXT         NOT NULL DEFAULT '',
+  sort_order      SMALLINT     NOT NULL DEFAULT 0,
   PRIMARY KEY (id),
   CONSTRAINT fk_si_form FOREIGN KEY (form_id)
     REFERENCES skill_forms (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
--- 3e. skill_form_versions  (immutable approval snapshots)
+-- 3e. skill_form_versions  (immutable approval snapshots — append only)
 CREATE TABLE IF NOT EXISTS skill_form_versions (
   id          CHAR(36)    NOT NULL DEFAULT (UUID()),
   cycle_id    CHAR(36)    NOT NULL,
   form_id     CHAR(36)    DEFAULT NULL,
   employee_id CHAR(36)    NOT NULL,
-  -- snapshot stores the full form + skill_items JSON at approval time
   snapshot    JSON        NOT NULL,
   approved_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   approved_by CHAR(36)    DEFAULT NULL,
@@ -346,29 +313,30 @@ CREATE TABLE IF NOT EXISTS notifications (
 -- 4. INDEXES
 -- ============================================================================
 
-CREATE INDEX idx_users_manager_id               ON users          (manager_id);
-CREATE INDEX idx_users_role                     ON users          (role);
-CREATE INDEX idx_skill_forms_employee_id        ON skill_forms    (employee_id);
-CREATE INDEX idx_skill_forms_manager_id         ON skill_forms    (manager_id);
-CREATE INDEX idx_skill_forms_status             ON skill_forms    (status);
-CREATE INDEX idx_skill_forms_cycle_id           ON skill_forms    (cycle_id);
-CREATE INDEX idx_skill_items_form_id            ON skill_items    (form_id);
-CREATE INDEX idx_skill_items_form_category      ON skill_items    (form_id, category);
-CREATE INDEX idx_notifications_user_id          ON notifications  (user_id);
-CREATE INDEX idx_notifications_is_read          ON notifications  (is_read);
+CREATE INDEX idx_users_manager_id               ON users                (manager_id);
+CREATE INDEX idx_users_role                     ON users                (role);
+CREATE INDEX idx_skill_forms_employee_id        ON skill_forms          (employee_id);
+CREATE INDEX idx_skill_forms_manager_id         ON skill_forms          (manager_id);
+CREATE INDEX idx_skill_forms_status             ON skill_forms          (status);
+CREATE INDEX idx_skill_forms_cycle_id           ON skill_forms          (cycle_id);
+CREATE INDEX idx_skill_items_form_id            ON skill_items          (form_id);
+CREATE INDEX idx_skill_items_form_category      ON skill_items          (form_id, category);
+CREATE INDEX idx_notifications_user_id          ON notifications        (user_id);
+CREATE INDEX idx_notifications_is_read          ON notifications        (is_read);
 CREATE INDEX idx_settings_designations_grade_id ON settings_designations (grade_id);
-CREATE INDEX idx_sfv_cycle_id                   ON skill_form_versions (cycle_id);
-CREATE INDEX idx_sfv_employee_id                ON skill_form_versions (employee_id);
-CREATE INDEX idx_review_cycles_status           ON review_cycles  (status);
+CREATE INDEX idx_sfv_cycle_id                   ON skill_form_versions  (cycle_id);
+CREATE INDEX idx_sfv_employee_id                ON skill_form_versions  (employee_id);
+CREATE INDEX idx_review_cycles_status           ON review_cycles        (status);
 
 
 -- ============================================================================
 -- 5. TRIGGERS
 -- ============================================================================
 
--- 5a. Auto-create user profile row when auth_users is inserted
--- (mirrors the Supabase handle_new_user() trigger)
 DELIMITER $$
+
+-- 5a. Auto-create user profile when auth_users is inserted
+--     (mirrors Supabase handle_new_user() trigger)
 CREATE TRIGGER trg_handle_new_auth_user
 AFTER INSERT ON auth_users
 FOR EACH ROW
@@ -378,17 +346,45 @@ BEGIN
 END$$
 
 
--- 5b. Auto-snapshot on skill_form approval
--- (mirrors create_approval_snapshot() PostgreSQL trigger function)
--- NOTE: MySQL triggers cannot reference other tables in a correlated subquery
--- using NEW/OLD in the same statement as in PG. We use a separate INSERT here.
+-- 5b. Enforce at most one active cycle at a time
+--     (replaces PostgreSQL partial unique index WHERE status = 'active')
+CREATE TRIGGER trg_one_active_cycle_insert
+BEFORE INSERT ON review_cycles
+FOR EACH ROW
+BEGIN
+  IF NEW.status = 'active' THEN
+    IF (SELECT COUNT(*) FROM review_cycles WHERE status = 'active') > 0 THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Only one review cycle can be active at a time.';
+    END IF;
+  END IF;
+END$$
+
+CREATE TRIGGER trg_one_active_cycle_update
+BEFORE UPDATE ON review_cycles
+FOR EACH ROW
+BEGIN
+  IF NEW.status = 'active' AND OLD.status <> 'active' THEN
+    IF (SELECT COUNT(*) FROM review_cycles
+        WHERE status = 'active' AND id <> NEW.id) > 0 THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Only one review cycle can be active at a time.';
+    END IF;
+  END IF;
+END$$
+
+
+-- 5c. Auto-snapshot trigger on skill_form approval
+--     (mirrors create_approval_snapshot() PostgreSQL SECURITY DEFINER trigger)
+--     NOTE: MySQL triggers cannot do correlated subqueries for skill_items within
+--     the same trigger statement — skill_items are embedded by the stored procedure
+--     approve_form() below for a complete snapshot.
 CREATE TRIGGER trg_skill_form_approval_snapshot
 AFTER UPDATE ON skill_forms
 FOR EACH ROW
 BEGIN
   DECLARE v_exists INT DEFAULT 0;
 
-  -- Only fire when status changes TO 'approved' and cycle is set
   IF NEW.status = 'approved' AND OLD.status <> 'approved' AND NEW.cycle_id IS NOT NULL THEN
 
     SELECT COUNT(*) INTO v_exists
@@ -396,10 +392,6 @@ BEGIN
     WHERE employee_id = NEW.employee_id AND cycle_id = NEW.cycle_id;
 
     IF v_exists = 0 THEN
-      -- Insert a lightweight snapshot with form-level fields only.
-      -- skill_items must be added by application code after this trigger fires,
-      -- OR use a stored procedure (see activate_cycle_reset_forms below) instead
-      -- of a trigger for the full snapshot including skill_items.
       INSERT INTO skill_form_versions
         (id, cycle_id, form_id, employee_id, snapshot, approved_at, approved_by, created_at)
       VALUES (
@@ -408,30 +400,30 @@ BEGIN
         NEW.id,
         NEW.employee_id,
         JSON_OBJECT(
-          'id',                          NEW.id,
-          'employee_id',                 NEW.employee_id,
-          'cycle_id',                    NEW.cycle_id,
-          'status',                      'approved',
-          'employee_name',               NEW.employee_name,
-          'employee_email',              NEW.employee_email,
-          'employee_number',             NEW.employee_number,
-          'designation',                 NEW.designation,
-          'grade',                       NEW.grade,
-          'total_exp',                   NEW.total_exp,
-          'relevant_exp',                NEW.relevant_exp,
-          'haptiq_exp',                  NEW.haptiq_exp,
-          'current_project',             NEW.current_project,
-          'tools',                       NEW.tools,
-          'databases',                   NEW.databases,
-          'certifications',              NEW.certifications,
-          'upskilling_plan',             NEW.upskilling_plan,
-          'manager_expectation_plan',    NEW.manager_expectation_plan,
-          'tools_manager_comment',       NEW.tools_manager_comment,
-          'databases_manager_comment',   NEW.databases_manager_comment,
-          'environments_manager_comment',NEW.environments_manager_comment,
-          'submitted_at',                NEW.submitted_at,
-          'approved_at',                 NEW.approved_at,
-          'reminders_sent',              NEW.reminders_sent
+          'id',                           NEW.id,
+          'employee_id',                  NEW.employee_id,
+          'cycle_id',                     NEW.cycle_id,
+          'status',                       'approved',
+          'employee_name',                NEW.employee_name,
+          'employee_email',               NEW.employee_email,
+          'employee_number',              NEW.employee_number,
+          'designation',                  NEW.designation,
+          'grade',                        NEW.grade,
+          'total_exp',                    NEW.total_exp,
+          'relevant_exp',                 NEW.relevant_exp,
+          'haptiq_exp',                   NEW.haptiq_exp,
+          'current_project',              NEW.current_project,
+          'tools',                        NEW.tools,
+          'databases',                    NEW.databases,
+          'certifications',               NEW.certifications,
+          'upskilling_plan',              NEW.upskilling_plan,
+          'manager_expectation_plan',     NEW.manager_expectation_plan,
+          'tools_manager_comment',        NEW.tools_manager_comment,
+          'databases_manager_comment',    NEW.databases_manager_comment,
+          'environments_manager_comment', NEW.environments_manager_comment,
+          'submitted_at',                 NEW.submitted_at,
+          'approved_at',                  NEW.approved_at,
+          'reminders_sent',               NEW.reminders_sent
         ),
         COALESCE(NEW.approved_at, CURRENT_TIMESTAMP(6)),
         NULL,
@@ -440,17 +432,20 @@ BEGIN
     END IF;
   END IF;
 END$$
+
 DELIMITER ;
 
 
 -- ============================================================================
 -- 6. STORED PROCEDURES
--- (replace PostgreSQL SECURITY DEFINER RPC functions)
+--    (replace PostgreSQL SECURITY DEFINER RPC functions called via supabase.rpc())
 -- ============================================================================
 
--- 6a. activate_cycle_reset_forms
---     Called when TMG activates a new cycle: resets all skill_forms to draft.
 DELIMITER $$
+
+-- 6a. activate_cycle_reset_forms(p_cycle_id)
+--     Called by TMG when activating a new cycle.
+--     Resets ALL skill_forms to draft and assigns them to the new cycle.
 CREATE PROCEDURE activate_cycle_reset_forms(IN p_cycle_id CHAR(36))
 BEGIN
   UPDATE skill_forms
@@ -464,16 +459,15 @@ BEGIN
 END$$
 
 
--- 6b. suspend_cycle
---     Marks a cycle as suspended and purges all non-approved employee forms
---     that belong to that cycle.
+-- 6b. suspend_cycle(p_cycle_id, p_reason, p_user_id)
+--     Marks a cycle as suspended, records reason + actor,
+--     and purges all non-approved forms + their skill_items for that cycle.
 CREATE PROCEDURE suspend_cycle(
   IN p_cycle_id CHAR(36),
   IN p_reason   TEXT,
   IN p_user_id  CHAR(36)
 )
 BEGIN
-  -- Mark cycle suspended
   UPDATE review_cycles
   SET
     status            = 'suspended',
@@ -494,6 +488,7 @@ BEGIN
   WHERE cycle_id = p_cycle_id
     AND status <> 'approved';
 END$$
+
 DELIMITER ;
 
 
@@ -583,301 +578,279 @@ INSERT IGNORE INTO settings_grades (id, name, sort_order) VALUES
   (UUID(),'MGMT09',17),(UUID(),'MGMT10',18),(UUID(),'MGMT11',19),(UUID(),'MGMT12',20),
   (UUID(),'MGMT13',21),(UUID(),'MGMT14',22),(UUID(),'MGMT15',23);
 
--- Designations (uses subquery to look up grade_id by name)
+-- Designations (uses JOIN to resolve grade_id by name — avoids hardcoded UUIDs)
 INSERT IGNORE INTO settings_designations (id, grade_id, name)
 SELECT UUID(), g.id, d.name
 FROM settings_grades g
 JOIN (
-  SELECT 'IC01' AS grade, 'Admin'                          AS name UNION ALL
-  SELECT 'IC01','Assistant Data Engineer'                          UNION ALL
-  SELECT 'IC01','Assistant Data Analyst'                           UNION ALL
-  SELECT 'IC01','Assistant Devops Engineer'                        UNION ALL
-  SELECT 'IC01','Assistant Software Engineer'                      UNION ALL
-  SELECT 'IC01','Assistant UX/UI Designer'                         UNION ALL
-  SELECT 'IC01','Junior Sales Director'                            UNION ALL
-  SELECT 'IC01','Junior RevOps Associate'                          UNION ALL
-  SELECT 'IC01','QA Tester'                                        UNION ALL
-  SELECT 'IC01','Support Staff'                                    UNION ALL
-
-  SELECT 'IC02','Admin'                                            UNION ALL
-  SELECT 'IC02','Associate / Intern'                               UNION ALL
-  SELECT 'IC02','Associate AI Engineer'                            UNION ALL
-  SELECT 'IC02','Associate Data Engineer'                          UNION ALL
-  SELECT 'IC02','Associate Data Analyst'                           UNION ALL
-  SELECT 'IC02','Associate QA Analyst'                             UNION ALL
-  SELECT 'IC02','Associate Software Devops'                        UNION ALL
-  SELECT 'IC02','Associate Software Engineer'                      UNION ALL
-  SELECT 'IC02','Associate UX/UI Designer'                         UNION ALL
-  SELECT 'IC02','Jr Accountant'                                    UNION ALL
-  SELECT 'IC02','Jr Associate'                                     UNION ALL
-  SELECT 'IC02','Junior Sales Director'                            UNION ALL
-  SELECT 'IC02','RevOps Associate'                                 UNION ALL
-
-  SELECT 'IC03','Software Engineer'                                UNION ALL
-  SELECT 'IC03','Accountant'                                       UNION ALL
-  SELECT 'IC03','Admin'                                            UNION ALL
-  SELECT 'IC03','AI Engineer'                                      UNION ALL
-  SELECT 'IC03','Data Engineer'                                    UNION ALL
-  SELECT 'IC03','Data Analyst'                                     UNION ALL
-  SELECT 'IC03','Data AI Research Scientist'                       UNION ALL
-  SELECT 'IC03','Devops Engineer'                                  UNION ALL
-  SELECT 'IC03','Release Engineer'                                 UNION ALL
-  SELECT 'IC03','HR Ops Coordinator'                               UNION ALL
-  SELECT 'IC03','Associate Talent Acquisition Specialist'          UNION ALL
-  SELECT 'IC03','QA Analyst'                                       UNION ALL
-  SELECT 'IC03','Sales Director'                                   UNION ALL
-  SELECT 'IC03','RevOps Associate'                                 UNION ALL
-  SELECT 'IC03','UX/UI / Graphic Designer'                         UNION ALL
-
-  SELECT 'IC04','Admin II'                                         UNION ALL
-  SELECT 'IC04','Resourcing Specialist'                            UNION ALL
-  SELECT 'IC04','AI Engineer II'                                   UNION ALL
-  SELECT 'IC04','Data Engineer II'                                 UNION ALL
-  SELECT 'IC04','Data Analyst II'                                  UNION ALL
-  SELECT 'IC04','Devops Engineer II'                               UNION ALL
-  SELECT 'IC04','HR Ops Admin'                                     UNION ALL
-  SELECT 'IC04','Talent Acquisition Specialist'                    UNION ALL
-  SELECT 'IC04','HRBP'                                             UNION ALL
-  SELECT 'IC04','QA Engineer'                                      UNION ALL
-  SELECT 'IC04','Sales Director'                                   UNION ALL
-  SELECT 'IC04','RevOps Manager'                                   UNION ALL
-  SELECT 'IC04','Senior Accountant'                                UNION ALL
-  SELECT 'IC04','Software Engineer II'                             UNION ALL
-  SELECT 'IC04','UX/UI / Graphic Designer II'                      UNION ALL
-
-  SELECT 'IC05','Admin II'                                         UNION ALL
-  SELECT 'IC05','Resourcing Specialist'                            UNION ALL
-  SELECT 'IC05','AI Engineer III'                                  UNION ALL
-  SELECT 'IC05','Data Engineer III'                                UNION ALL
-  SELECT 'IC05','Data Analyst III'                                 UNION ALL
-  SELECT 'IC05','Devops Engineer III'                              UNION ALL
-  SELECT 'IC05','HR Ops Admin'                                     UNION ALL
-  SELECT 'IC05','Talent Acquisition Specialist II'                 UNION ALL
-  SELECT 'IC05','HRBP II'                                          UNION ALL
-  SELECT 'IC05','QA Engineer II'                                   UNION ALL
-  SELECT 'IC05','Sales Director'                                   UNION ALL
-  SELECT 'IC05','RevOps Manager'                                   UNION ALL
-  SELECT 'IC05','Senior Accountant II'                             UNION ALL
-  SELECT 'IC05','Software Engineer III'                            UNION ALL
-  SELECT 'IC05','UX/UI / Graphic Designer III'                     UNION ALL
-
-  SELECT 'IC06','Senior Admin'                                     UNION ALL
-  SELECT 'IC06','Senior Resourcing Specialist'                     UNION ALL
-  SELECT 'IC06','Senior AI Engineer'                               UNION ALL
-  SELECT 'IC06','Senior Assistant Controller'                      UNION ALL
-  SELECT 'IC06','Senior Data Engineer'                             UNION ALL
-  SELECT 'IC06','Senior Data Analyst'                              UNION ALL
-  SELECT 'IC06','Senior Devops Engineer'                           UNION ALL
-  SELECT 'IC06','Senior HR Ops Admin'                              UNION ALL
-  SELECT 'IC06','Senior Talent Acquisition Specialist'             UNION ALL
-  SELECT 'IC06','Senior HRBP'                                      UNION ALL
-  SELECT 'IC06','Senior QA Engineer'                               UNION ALL
-  SELECT 'IC06','Senior Sales Director'                            UNION ALL
-  SELECT 'IC06','Senior RevOps Manager'                            UNION ALL
-  SELECT 'IC06','Senior Software Engineer'                         UNION ALL
-  SELECT 'IC06','Senior UX/UI'                                     UNION ALL
-  SELECT 'IC06','Senior Graphic Designer'                          UNION ALL
-
-  SELECT 'IC07','AI Architect'                                     UNION ALL
-  SELECT 'IC07','Data Warehouse Architect'                         UNION ALL
-  SELECT 'IC07','Data Architect'                                   UNION ALL
-  SELECT 'IC07','Devops Architect'                                 UNION ALL
-  SELECT 'IC07','Senior HR Ops Admin II'                           UNION ALL
-  SELECT 'IC07','Senior Talent Acquisition Specialist II'          UNION ALL
-  SELECT 'IC07','HRBP II'                                          UNION ALL
-  SELECT 'IC07','Senior II'                                        UNION ALL
-  SELECT 'IC07','Senior Admin II'                                  UNION ALL
-  SELECT 'IC07','Senior Resourcing Specialist'                     UNION ALL
-  SELECT 'IC07','Senior Assistant Controller II'                   UNION ALL
-  SELECT 'IC07','Senior Sales Director II'                         UNION ALL
-  SELECT 'IC07','Senior QA Engineer II'                            UNION ALL
-  SELECT 'IC07','Senior Graphic Designer II'                       UNION ALL
-  SELECT 'IC07','Senior UX/UI II'                                  UNION ALL
-  SELECT 'IC07','Software Architect'                               UNION ALL
-  SELECT 'IC07','Solution Designer'                                UNION ALL
-
-  SELECT 'IC08','Site Reliability Engineer I'                      UNION ALL
-  SELECT 'IC08','Staff'                                            UNION ALL
-  SELECT 'IC08','Staff AI Engineer'                                UNION ALL
-  SELECT 'IC08','Staff Controller'                                 UNION ALL
-  SELECT 'IC08','Staff Data Engineer I'                            UNION ALL
-  SELECT 'IC08','Staff Data Analyst I'                             UNION ALL
-  SELECT 'IC08','Staff HR Ops Admin'                               UNION ALL
-  SELECT 'IC08','Staff Talent Acquisition Specialist'              UNION ALL
-  SELECT 'IC08','Staff HRBP'                                       UNION ALL
-  SELECT 'IC08','Staff QA Engineer'                                UNION ALL
-  SELECT 'IC08','Staff Software Engineer I'                        UNION ALL
-  SELECT 'IC08','Staff Solution Designer'                          UNION ALL
-  SELECT 'IC08','Staff UX/UI I'                                    UNION ALL
-  SELECT 'IC08','Staff Graphic Designer I'                         UNION ALL
-
-  SELECT 'IC09','Site Reliability Engineer II'                     UNION ALL
-  SELECT 'IC09','Staff AI Engineer II'                             UNION ALL
-  SELECT 'IC09','Staff Data Engineer/Analyst II'                   UNION ALL
-  SELECT 'IC09','Staff II'                                         UNION ALL
-  SELECT 'IC09','Staff QA Engineer II'                             UNION ALL
-  SELECT 'IC09','Staff Software Engineer II'                       UNION ALL
-  SELECT 'IC09','Solutions Architect'                              UNION ALL
-  SELECT 'IC09','Staff Solutions Architect'                        UNION ALL
-  SELECT 'IC09','Staff UX/UI II'                                   UNION ALL
-  SELECT 'IC09','Staff Graphic Designer II'                        UNION ALL
-
-  SELECT 'IC10','Principal'                                        UNION ALL
-  SELECT 'IC10','Principal AI Engineer'                            UNION ALL
-  SELECT 'IC10','Principal Data Engineer I'                        UNION ALL
-  SELECT 'IC10','Principal Data Analyst I'                         UNION ALL
-  SELECT 'IC10','Principal Devops Engineer I'                      UNION ALL
-  SELECT 'IC10','Principal QA Engineer'                            UNION ALL
-  SELECT 'IC10','Principal Software Engineer'                      UNION ALL
-  SELECT 'IC10','Principal Software Engineer I'                    UNION ALL
-  SELECT 'IC10','Principal UX/UI I'                                UNION ALL
-  SELECT 'IC10','Principal Graphic Engineer I'                     UNION ALL
-
-  SELECT 'IC11','Principal AI Engineer II'                         UNION ALL
-  SELECT 'IC11','Principal Data Engineer II'                       UNION ALL
-  SELECT 'IC11','Principal Data Analyst II'                        UNION ALL
-  SELECT 'IC11','Principal Devops Engineer II'                     UNION ALL
-  SELECT 'IC11','Principal II'                                     UNION ALL
-  SELECT 'IC11','Principal QA Engineer II'                         UNION ALL
-  SELECT 'IC11','Principal Software Engineer II'                   UNION ALL
-  SELECT 'IC11','Principal UX/UI'                                  UNION ALL
-  SELECT 'IC11','Graphic Engineer II'                              UNION ALL
-
-  SELECT 'IC12','AI Fellow Engineer'                               UNION ALL
-  SELECT 'IC12','Data and AI Fellow'                               UNION ALL
-  SELECT 'IC12','Devops Fellow'                                    UNION ALL
-  SELECT 'IC12','Engineering Fellow'                               UNION ALL
-  SELECT 'IC12','Fellow'                                           UNION ALL
-  SELECT 'IC12','Fellow QA Engineer'                               UNION ALL
-  SELECT 'IC12','UX/UI Fellow'                                     UNION ALL
-  SELECT 'IC12','Graphic Designer Fellow'                          UNION ALL
-
-  SELECT 'MGMT05','Associate Lead'                                 UNION ALL
-  SELECT 'MGMT05','Associate Lead, AI Engineering'                 UNION ALL
-  SELECT 'MGMT05','Associate Lead, Data Engineering'               UNION ALL
-  SELECT 'MGMT05','Associate Lead, Design'                         UNION ALL
-  SELECT 'MGMT05','Associate Lead, Devops'                         UNION ALL
-  SELECT 'MGMT05','Associate Lead, Marketing Management'           UNION ALL
-  SELECT 'MGMT05','Associate Lead, Marketing Technology'           UNION ALL
-  SELECT 'MGMT05','Associate Lead, Marketing Analysis'             UNION ALL
-  SELECT 'MGMT05','Digital Analytics'                              UNION ALL
-  SELECT 'MGMT05','Associate Lead, QA'                             UNION ALL
-  SELECT 'MGMT05','Associate Lead, Software Engineering'           UNION ALL
-  SELECT 'MGMT05','Associate Lead, BA'                             UNION ALL
-
-  SELECT 'MGMT06','Lead'                                           UNION ALL
-  SELECT 'MGMT06','Team Lead'                                      UNION ALL
-  SELECT 'MGMT06','Team Lead, AI Engineering'                      UNION ALL
-  SELECT 'MGMT06','Team Lead, Data Engineering'                    UNION ALL
-  SELECT 'MGMT06','Team Lead, Design'                              UNION ALL
-  SELECT 'MGMT06','Team Lead, Devops'                              UNION ALL
-  SELECT 'MGMT06','Team Lead, Marketing Management'                UNION ALL
-  SELECT 'MGMT06','Team Lead, Marketing Technology'                UNION ALL
-  SELECT 'MGMT06','Team Lead, Marketing Analysis'                  UNION ALL
-  SELECT 'MGMT06','Digital Analytics'                              UNION ALL
-  SELECT 'MGMT06','Team Lead, QA'                                  UNION ALL
-  SELECT 'MGMT06','Team Lead, Software Engineering'                UNION ALL
-  SELECT 'MGMT06','Team Lead, BA'                                  UNION ALL
-  SELECT 'MGMT06','Lead Admin'                                     UNION ALL
-  SELECT 'MGMT06','Resourcing Specialist Lead'                     UNION ALL
-
-  SELECT 'MGMT07','Manager'                                        UNION ALL
-  SELECT 'MGMT07','Manager UX/UI Design'                           UNION ALL
-  SELECT 'MGMT07','Manager, AI Engineering'                        UNION ALL
-  SELECT 'MGMT07','Manager, Data Engineering'                      UNION ALL
-  SELECT 'MGMT07','Manager, Devops'                                UNION ALL
-  SELECT 'MGMT07','Manager, Marketing Management'                  UNION ALL
-  SELECT 'MGMT07','Manager, Marketing Technology'                  UNION ALL
-  SELECT 'MGMT07','Manager, Marketing Analysis'                    UNION ALL
-  SELECT 'MGMT07','Digital Analytics'                              UNION ALL
-  SELECT 'MGMT07','Manager, QA'                                    UNION ALL
-  SELECT 'MGMT07','Technical Manager'                              UNION ALL
-  SELECT 'MGMT07','Manager, BA'                                    UNION ALL
-  SELECT 'MGMT07','Manager Admin'                                  UNION ALL
-  SELECT 'MGMT07','Resourcing Specialist Manager'                  UNION ALL
-
-  SELECT 'MGMT08','Senior Manager'                                 UNION ALL
-  SELECT 'MGMT08','Senior Manager, AI Engineering'                 UNION ALL
-  SELECT 'MGMT08','Senior Manager, Data Engineering'               UNION ALL
-  SELECT 'MGMT08','Senior Manager, Design'                         UNION ALL
-  SELECT 'MGMT08','Senior Manager, Devops'                         UNION ALL
-  SELECT 'MGMT08','Senior Manager, QA'                             UNION ALL
-  SELECT 'MGMT08','Senior Marketing Manager'                       UNION ALL
-  SELECT 'MGMT08','Senior Manager, Marketing Technology'           UNION ALL
-  SELECT 'MGMT08','Marketing Analysis'                             UNION ALL
-  SELECT 'MGMT08','Digital Analytics'                              UNION ALL
-  SELECT 'MGMT08','Senior Technical Manager'                       UNION ALL
-  SELECT 'MGMT08','Senior Manager, BA'                             UNION ALL
-
-  SELECT 'MGMT09','Deputy / Associate Director'                    UNION ALL
-  SELECT 'MGMT09','Deputy / Associate Director of AI Engineering'  UNION ALL
-  SELECT 'MGMT09','Deputy / Associate Director of Data Engineering' UNION ALL
-  SELECT 'MGMT09','Deputy / Associate Director of Design'          UNION ALL
-  SELECT 'MGMT09','Deputy / Associate Director of Devops'          UNION ALL
-  SELECT 'MGMT09','Deputy / Associate Director of Engineering'     UNION ALL
+  SELECT 'IC01' AS grade, 'Admin'                            AS name UNION ALL
+  SELECT 'IC01','Assistant Data Engineer'                            UNION ALL
+  SELECT 'IC01','Assistant Data Analyst'                             UNION ALL
+  SELECT 'IC01','Assistant Devops Engineer'                          UNION ALL
+  SELECT 'IC01','Assistant Software Engineer'                        UNION ALL
+  SELECT 'IC01','Assistant UX/UI Designer'                           UNION ALL
+  SELECT 'IC01','Junior Sales Director'                              UNION ALL
+  SELECT 'IC01','Junior RevOps Associate'                            UNION ALL
+  SELECT 'IC01','QA Tester'                                          UNION ALL
+  SELECT 'IC01','Support Staff'                                      UNION ALL
+  SELECT 'IC02','Admin'                                              UNION ALL
+  SELECT 'IC02','Associate / Intern'                                 UNION ALL
+  SELECT 'IC02','Associate AI Engineer'                              UNION ALL
+  SELECT 'IC02','Associate Data Engineer'                            UNION ALL
+  SELECT 'IC02','Associate Data Analyst'                             UNION ALL
+  SELECT 'IC02','Associate QA Analyst'                               UNION ALL
+  SELECT 'IC02','Associate Software Devops'                          UNION ALL
+  SELECT 'IC02','Associate Software Engineer'                        UNION ALL
+  SELECT 'IC02','Associate UX/UI Designer'                           UNION ALL
+  SELECT 'IC02','Jr Accountant'                                      UNION ALL
+  SELECT 'IC02','Jr Associate'                                       UNION ALL
+  SELECT 'IC02','Junior Sales Director'                              UNION ALL
+  SELECT 'IC02','RevOps Associate'                                   UNION ALL
+  SELECT 'IC03','Software Engineer'                                  UNION ALL
+  SELECT 'IC03','Accountant'                                         UNION ALL
+  SELECT 'IC03','Admin'                                              UNION ALL
+  SELECT 'IC03','AI Engineer'                                        UNION ALL
+  SELECT 'IC03','Data Engineer'                                      UNION ALL
+  SELECT 'IC03','Data Analyst'                                       UNION ALL
+  SELECT 'IC03','Data AI Research Scientist'                         UNION ALL
+  SELECT 'IC03','Devops Engineer'                                    UNION ALL
+  SELECT 'IC03','Release Engineer'                                   UNION ALL
+  SELECT 'IC03','HR Ops Coordinator'                                 UNION ALL
+  SELECT 'IC03','Associate Talent Acquisition Specialist'            UNION ALL
+  SELECT 'IC03','QA Analyst'                                         UNION ALL
+  SELECT 'IC03','Sales Director'                                     UNION ALL
+  SELECT 'IC03','RevOps Associate'                                   UNION ALL
+  SELECT 'IC03','UX/UI / Graphic Designer'                           UNION ALL
+  SELECT 'IC04','Admin II'                                           UNION ALL
+  SELECT 'IC04','Resourcing Specialist'                              UNION ALL
+  SELECT 'IC04','AI Engineer II'                                     UNION ALL
+  SELECT 'IC04','Data Engineer II'                                   UNION ALL
+  SELECT 'IC04','Data Analyst II'                                    UNION ALL
+  SELECT 'IC04','Devops Engineer II'                                 UNION ALL
+  SELECT 'IC04','HR Ops Admin'                                       UNION ALL
+  SELECT 'IC04','Talent Acquisition Specialist'                      UNION ALL
+  SELECT 'IC04','HRBP'                                               UNION ALL
+  SELECT 'IC04','QA Engineer'                                        UNION ALL
+  SELECT 'IC04','Sales Director'                                     UNION ALL
+  SELECT 'IC04','RevOps Manager'                                     UNION ALL
+  SELECT 'IC04','Senior Accountant'                                  UNION ALL
+  SELECT 'IC04','Software Engineer II'                               UNION ALL
+  SELECT 'IC04','UX/UI / Graphic Designer II'                        UNION ALL
+  SELECT 'IC05','Admin II'                                           UNION ALL
+  SELECT 'IC05','Resourcing Specialist'                              UNION ALL
+  SELECT 'IC05','AI Engineer III'                                    UNION ALL
+  SELECT 'IC05','Data Engineer III'                                  UNION ALL
+  SELECT 'IC05','Data Analyst III'                                   UNION ALL
+  SELECT 'IC05','Devops Engineer III'                                UNION ALL
+  SELECT 'IC05','HR Ops Admin'                                       UNION ALL
+  SELECT 'IC05','Talent Acquisition Specialist II'                   UNION ALL
+  SELECT 'IC05','HRBP II'                                            UNION ALL
+  SELECT 'IC05','QA Engineer II'                                     UNION ALL
+  SELECT 'IC05','Sales Director'                                     UNION ALL
+  SELECT 'IC05','RevOps Manager'                                     UNION ALL
+  SELECT 'IC05','Senior Accountant II'                               UNION ALL
+  SELECT 'IC05','Software Engineer III'                              UNION ALL
+  SELECT 'IC05','UX/UI / Graphic Designer III'                       UNION ALL
+  SELECT 'IC06','Senior Admin'                                       UNION ALL
+  SELECT 'IC06','Senior Resourcing Specialist'                       UNION ALL
+  SELECT 'IC06','Senior AI Engineer'                                 UNION ALL
+  SELECT 'IC06','Senior Assistant Controller'                        UNION ALL
+  SELECT 'IC06','Senior Data Engineer'                               UNION ALL
+  SELECT 'IC06','Senior Data Analyst'                                UNION ALL
+  SELECT 'IC06','Senior Devops Engineer'                             UNION ALL
+  SELECT 'IC06','Senior HR Ops Admin'                                UNION ALL
+  SELECT 'IC06','Senior Talent Acquisition Specialist'               UNION ALL
+  SELECT 'IC06','Senior HRBP'                                        UNION ALL
+  SELECT 'IC06','Senior QA Engineer'                                 UNION ALL
+  SELECT 'IC06','Senior Sales Director'                              UNION ALL
+  SELECT 'IC06','Senior RevOps Manager'                              UNION ALL
+  SELECT 'IC06','Senior Software Engineer'                           UNION ALL
+  SELECT 'IC06','Senior UX/UI'                                       UNION ALL
+  SELECT 'IC06','Senior Graphic Designer'                            UNION ALL
+  SELECT 'IC07','AI Architect'                                       UNION ALL
+  SELECT 'IC07','Data Warehouse Architect'                           UNION ALL
+  SELECT 'IC07','Data Architect'                                     UNION ALL
+  SELECT 'IC07','Devops Architect'                                   UNION ALL
+  SELECT 'IC07','Senior HR Ops Admin II'                             UNION ALL
+  SELECT 'IC07','Senior Talent Acquisition Specialist II'            UNION ALL
+  SELECT 'IC07','HRBP II'                                            UNION ALL
+  SELECT 'IC07','Senior II'                                          UNION ALL
+  SELECT 'IC07','Senior Admin II'                                    UNION ALL
+  SELECT 'IC07','Senior Resourcing Specialist'                       UNION ALL
+  SELECT 'IC07','Senior Assistant Controller II'                     UNION ALL
+  SELECT 'IC07','Senior Sales Director II'                           UNION ALL
+  SELECT 'IC07','Senior QA Engineer II'                              UNION ALL
+  SELECT 'IC07','Senior Graphic Designer II'                         UNION ALL
+  SELECT 'IC07','Senior UX/UI II'                                    UNION ALL
+  SELECT 'IC07','Software Architect'                                 UNION ALL
+  SELECT 'IC07','Solution Designer'                                  UNION ALL
+  SELECT 'IC08','Site Reliability Engineer I'                        UNION ALL
+  SELECT 'IC08','Staff'                                              UNION ALL
+  SELECT 'IC08','Staff AI Engineer'                                  UNION ALL
+  SELECT 'IC08','Staff Controller'                                   UNION ALL
+  SELECT 'IC08','Staff Data Engineer I'                              UNION ALL
+  SELECT 'IC08','Staff Data Analyst I'                               UNION ALL
+  SELECT 'IC08','Staff HR Ops Admin'                                 UNION ALL
+  SELECT 'IC08','Staff Talent Acquisition Specialist'                UNION ALL
+  SELECT 'IC08','Staff HRBP'                                         UNION ALL
+  SELECT 'IC08','Staff QA Engineer'                                  UNION ALL
+  SELECT 'IC08','Staff Software Engineer I'                          UNION ALL
+  SELECT 'IC08','Staff Solution Designer'                            UNION ALL
+  SELECT 'IC08','Staff UX/UI I'                                      UNION ALL
+  SELECT 'IC08','Staff Graphic Designer I'                           UNION ALL
+  SELECT 'IC09','Site Reliability Engineer II'                       UNION ALL
+  SELECT 'IC09','Staff AI Engineer II'                               UNION ALL
+  SELECT 'IC09','Staff Data Engineer/Analyst II'                     UNION ALL
+  SELECT 'IC09','Staff II'                                           UNION ALL
+  SELECT 'IC09','Staff QA Engineer II'                               UNION ALL
+  SELECT 'IC09','Staff Software Engineer II'                         UNION ALL
+  SELECT 'IC09','Solutions Architect'                                UNION ALL
+  SELECT 'IC09','Staff Solutions Architect'                          UNION ALL
+  SELECT 'IC09','Staff UX/UI II'                                     UNION ALL
+  SELECT 'IC09','Staff Graphic Designer II'                          UNION ALL
+  SELECT 'IC10','Principal'                                          UNION ALL
+  SELECT 'IC10','Principal AI Engineer'                              UNION ALL
+  SELECT 'IC10','Principal Data Engineer I'                          UNION ALL
+  SELECT 'IC10','Principal Data Analyst I'                           UNION ALL
+  SELECT 'IC10','Principal Devops Engineer I'                        UNION ALL
+  SELECT 'IC10','Principal QA Engineer'                              UNION ALL
+  SELECT 'IC10','Principal Software Engineer'                        UNION ALL
+  SELECT 'IC10','Principal Software Engineer I'                      UNION ALL
+  SELECT 'IC10','Principal UX/UI I'                                  UNION ALL
+  SELECT 'IC10','Principal Graphic Engineer I'                       UNION ALL
+  SELECT 'IC11','Principal AI Engineer II'                           UNION ALL
+  SELECT 'IC11','Principal Data Engineer II'                         UNION ALL
+  SELECT 'IC11','Principal Data Analyst II'                          UNION ALL
+  SELECT 'IC11','Principal Devops Engineer II'                       UNION ALL
+  SELECT 'IC11','Principal II'                                       UNION ALL
+  SELECT 'IC11','Principal QA Engineer II'                           UNION ALL
+  SELECT 'IC11','Principal Software Engineer II'                     UNION ALL
+  SELECT 'IC11','Principal UX/UI'                                    UNION ALL
+  SELECT 'IC11','Graphic Engineer II'                                UNION ALL
+  SELECT 'IC12','AI Fellow Engineer'                                 UNION ALL
+  SELECT 'IC12','Data and AI Fellow'                                 UNION ALL
+  SELECT 'IC12','Devops Fellow'                                      UNION ALL
+  SELECT 'IC12','Engineering Fellow'                                 UNION ALL
+  SELECT 'IC12','Fellow'                                             UNION ALL
+  SELECT 'IC12','Fellow QA Engineer'                                 UNION ALL
+  SELECT 'IC12','UX/UI Fellow'                                       UNION ALL
+  SELECT 'IC12','Graphic Designer Fellow'                            UNION ALL
+  SELECT 'MGMT05','Associate Lead'                                   UNION ALL
+  SELECT 'MGMT05','Associate Lead, AI Engineering'                   UNION ALL
+  SELECT 'MGMT05','Associate Lead, Data Engineering'                 UNION ALL
+  SELECT 'MGMT05','Associate Lead, Design'                           UNION ALL
+  SELECT 'MGMT05','Associate Lead, Devops'                           UNION ALL
+  SELECT 'MGMT05','Associate Lead, Marketing Management'             UNION ALL
+  SELECT 'MGMT05','Associate Lead, Marketing Technology'             UNION ALL
+  SELECT 'MGMT05','Associate Lead, Marketing Analysis'               UNION ALL
+  SELECT 'MGMT05','Digital Analytics'                                UNION ALL
+  SELECT 'MGMT05','Associate Lead, QA'                               UNION ALL
+  SELECT 'MGMT05','Associate Lead, Software Engineering'             UNION ALL
+  SELECT 'MGMT05','Associate Lead, BA'                               UNION ALL
+  SELECT 'MGMT06','Lead'                                             UNION ALL
+  SELECT 'MGMT06','Team Lead'                                        UNION ALL
+  SELECT 'MGMT06','Team Lead, AI Engineering'                        UNION ALL
+  SELECT 'MGMT06','Team Lead, Data Engineering'                      UNION ALL
+  SELECT 'MGMT06','Team Lead, Design'                                UNION ALL
+  SELECT 'MGMT06','Team Lead, Devops'                                UNION ALL
+  SELECT 'MGMT06','Team Lead, Marketing Management'                  UNION ALL
+  SELECT 'MGMT06','Team Lead, Marketing Technology'                  UNION ALL
+  SELECT 'MGMT06','Team Lead, Marketing Analysis'                    UNION ALL
+  SELECT 'MGMT06','Digital Analytics'                                UNION ALL
+  SELECT 'MGMT06','Team Lead, QA'                                    UNION ALL
+  SELECT 'MGMT06','Team Lead, Software Engineering'                  UNION ALL
+  SELECT 'MGMT06','Team Lead, BA'                                    UNION ALL
+  SELECT 'MGMT06','Lead Admin'                                       UNION ALL
+  SELECT 'MGMT06','Resourcing Specialist Lead'                       UNION ALL
+  SELECT 'MGMT07','Manager'                                          UNION ALL
+  SELECT 'MGMT07','Manager UX/UI Design'                             UNION ALL
+  SELECT 'MGMT07','Manager, AI Engineering'                          UNION ALL
+  SELECT 'MGMT07','Manager, Data Engineering'                        UNION ALL
+  SELECT 'MGMT07','Manager, Devops'                                  UNION ALL
+  SELECT 'MGMT07','Manager, Marketing Management'                    UNION ALL
+  SELECT 'MGMT07','Manager, Marketing Technology'                    UNION ALL
+  SELECT 'MGMT07','Manager, Marketing Analysis'                      UNION ALL
+  SELECT 'MGMT07','Digital Analytics'                                UNION ALL
+  SELECT 'MGMT07','Manager, QA'                                      UNION ALL
+  SELECT 'MGMT07','Technical Manager'                                UNION ALL
+  SELECT 'MGMT07','Manager, BA'                                      UNION ALL
+  SELECT 'MGMT07','Manager Admin'                                    UNION ALL
+  SELECT 'MGMT07','Resourcing Specialist Manager'                    UNION ALL
+  SELECT 'MGMT08','Senior Manager'                                   UNION ALL
+  SELECT 'MGMT08','Senior Manager, AI Engineering'                   UNION ALL
+  SELECT 'MGMT08','Senior Manager, Data Engineering'                 UNION ALL
+  SELECT 'MGMT08','Senior Manager, Design'                           UNION ALL
+  SELECT 'MGMT08','Senior Manager, Devops'                           UNION ALL
+  SELECT 'MGMT08','Senior Manager, QA'                               UNION ALL
+  SELECT 'MGMT08','Senior Marketing Manager'                         UNION ALL
+  SELECT 'MGMT08','Senior Manager, Marketing Technology'             UNION ALL
+  SELECT 'MGMT08','Marketing Analysis'                               UNION ALL
+  SELECT 'MGMT08','Digital Analytics'                                UNION ALL
+  SELECT 'MGMT08','Senior Technical Manager'                         UNION ALL
+  SELECT 'MGMT08','Senior Manager, BA'                               UNION ALL
+  SELECT 'MGMT09','Deputy / Associate Director'                      UNION ALL
+  SELECT 'MGMT09','Deputy / Associate Director of AI Engineering'    UNION ALL
+  SELECT 'MGMT09','Deputy / Associate Director of Data Engineering'  UNION ALL
+  SELECT 'MGMT09','Deputy / Associate Director of Design'            UNION ALL
+  SELECT 'MGMT09','Deputy / Associate Director of Devops'            UNION ALL
+  SELECT 'MGMT09','Deputy / Associate Director of Engineering'       UNION ALL
   SELECT 'MGMT09','Deputy / Associate Director of Marketing Technology' UNION ALL
-  SELECT 'MGMT09','Digital Analytics'                              UNION ALL
-  SELECT 'MGMT09','Deputy / Associate Director of QA'              UNION ALL
-  SELECT 'MGMT09','Deputy / Associate Director, BA'                UNION ALL
-
-  SELECT 'MGMT10','Director'                                       UNION ALL
-  SELECT 'MGMT10','Director of AI Engineering'                     UNION ALL
-  SELECT 'MGMT10','Director of Data Engineering'                   UNION ALL
-  SELECT 'MGMT10','Director of Design'                             UNION ALL
-  SELECT 'MGMT10','Director of Devops'                             UNION ALL
-  SELECT 'MGMT10','Director of Engineering'                        UNION ALL
-  SELECT 'MGMT10','Director of Marketing Technology'               UNION ALL
-  SELECT 'MGMT10','Director of QA'                                 UNION ALL
-  SELECT 'MGMT10','Director, BA'                                   UNION ALL
-
-  SELECT 'MGMT11','Senior Director'                                UNION ALL
-  SELECT 'MGMT11','Senior Director of AI Engineering'              UNION ALL
-  SELECT 'MGMT11','Senior Director of Data Engineering'            UNION ALL
-  SELECT 'MGMT11','Senior Director of Design'                      UNION ALL
-  SELECT 'MGMT11','Senior Director of Devops'                      UNION ALL
-  SELECT 'MGMT11','Senior Director of Engineering'                 UNION ALL
-  SELECT 'MGMT11','Senior Director of Marketing Technology'        UNION ALL
-  SELECT 'MGMT11','Senior Director of QA'                          UNION ALL
-  SELECT 'MGMT11','Senior Director, BA'                            UNION ALL
-
-  SELECT 'MGMT12','VP of AI Engineering I'                         UNION ALL
-  SELECT 'MGMT12','VP of Data and AI Engineering I'                UNION ALL
-  SELECT 'MGMT12','Deputy Head of Data'                            UNION ALL
-  SELECT 'MGMT12','VP of Devops I'                                 UNION ALL
-  SELECT 'MGMT12','Deputy Head of Devops'                          UNION ALL
-  SELECT 'MGMT12','VP of Engineering I'                            UNION ALL
-  SELECT 'MGMT12','Deputy Head of Engineering'                     UNION ALL
-  SELECT 'MGMT12','Deputy Head of Marketing Technology'            UNION ALL
-  SELECT 'MGMT12','VP of QA I'                                     UNION ALL
-  SELECT 'MGMT12','Deputy Head of QA'                              UNION ALL
-  SELECT 'MGMT12','VP of UX I'                                     UNION ALL
-  SELECT 'MGMT12','Deputy Head of Design'                          UNION ALL
-
-  SELECT 'MGMT13','VP of AI Engineering II'                        UNION ALL
-  SELECT 'MGMT13','VP of Data and AI Engineering II'               UNION ALL
-  SELECT 'MGMT13','Head of Data'                                   UNION ALL
-  SELECT 'MGMT13','VP of Devops II'                                UNION ALL
-  SELECT 'MGMT13','Head of Devops'                                 UNION ALL
-  SELECT 'MGMT13','VP of Engineering II'                           UNION ALL
-  SELECT 'MGMT13','Head of Engineering'                            UNION ALL
-  SELECT 'MGMT13','VP of Marketing Technology II'                  UNION ALL
-  SELECT 'MGMT13','Head of Marketing Technology'                   UNION ALL
-  SELECT 'MGMT13','VP of QA II'                                    UNION ALL
-  SELECT 'MGMT13','Head of QA'                                     UNION ALL
-  SELECT 'MGMT13','VP of UX II'                                    UNION ALL
-  SELECT 'MGMT13','Head of Design'                                 UNION ALL
-
-  SELECT 'MGMT14','Chief AI Officer'                               UNION ALL
-  SELECT 'MGMT14','Chief Data Officer'                             UNION ALL
-  SELECT 'MGMT14','Chief Quality Officer'                          UNION ALL
-  SELECT 'MGMT14','Chief Reliability Officer'                      UNION ALL
-  SELECT 'MGMT14','Chief Usability Officer'                        UNION ALL
-  SELECT 'MGMT14','CMO'                                            UNION ALL
-  SELECT 'MGMT14','CTO'                                            UNION ALL
-  SELECT 'MGMT14','SVP'                                            UNION ALL
-  SELECT 'MGMT14','GM'                                             UNION ALL
-  SELECT 'MGMT14','CXO'                                            UNION ALL
-
+  SELECT 'MGMT09','Digital Analytics'                                UNION ALL
+  SELECT 'MGMT09','Deputy / Associate Director of QA'                UNION ALL
+  SELECT 'MGMT09','Deputy / Associate Director, BA'                  UNION ALL
+  SELECT 'MGMT10','Director'                                         UNION ALL
+  SELECT 'MGMT10','Director of AI Engineering'                       UNION ALL
+  SELECT 'MGMT10','Director of Data Engineering'                     UNION ALL
+  SELECT 'MGMT10','Director of Design'                               UNION ALL
+  SELECT 'MGMT10','Director of Devops'                               UNION ALL
+  SELECT 'MGMT10','Director of Engineering'                          UNION ALL
+  SELECT 'MGMT10','Director of Marketing Technology'                 UNION ALL
+  SELECT 'MGMT10','Director of QA'                                   UNION ALL
+  SELECT 'MGMT10','Director, BA'                                     UNION ALL
+  SELECT 'MGMT11','Senior Director'                                  UNION ALL
+  SELECT 'MGMT11','Senior Director of AI Engineering'                UNION ALL
+  SELECT 'MGMT11','Senior Director of Data Engineering'              UNION ALL
+  SELECT 'MGMT11','Senior Director of Design'                        UNION ALL
+  SELECT 'MGMT11','Senior Director of Devops'                        UNION ALL
+  SELECT 'MGMT11','Senior Director of Engineering'                   UNION ALL
+  SELECT 'MGMT11','Senior Director of Marketing Technology'          UNION ALL
+  SELECT 'MGMT11','Senior Director of QA'                            UNION ALL
+  SELECT 'MGMT11','Senior Director, BA'                              UNION ALL
+  SELECT 'MGMT12','VP of AI Engineering I'                           UNION ALL
+  SELECT 'MGMT12','VP of Data and AI Engineering I'                  UNION ALL
+  SELECT 'MGMT12','Deputy Head of Data'                              UNION ALL
+  SELECT 'MGMT12','VP of Devops I'                                   UNION ALL
+  SELECT 'MGMT12','Deputy Head of Devops'                            UNION ALL
+  SELECT 'MGMT12','VP of Engineering I'                              UNION ALL
+  SELECT 'MGMT12','Deputy Head of Engineering'                       UNION ALL
+  SELECT 'MGMT12','Deputy Head of Marketing Technology'              UNION ALL
+  SELECT 'MGMT12','VP of QA I'                                       UNION ALL
+  SELECT 'MGMT12','Deputy Head of QA'                                UNION ALL
+  SELECT 'MGMT12','VP of UX I'                                       UNION ALL
+  SELECT 'MGMT12','Deputy Head of Design'                            UNION ALL
+  SELECT 'MGMT13','VP of AI Engineering II'                          UNION ALL
+  SELECT 'MGMT13','VP of Data and AI Engineering II'                 UNION ALL
+  SELECT 'MGMT13','Head of Data'                                     UNION ALL
+  SELECT 'MGMT13','VP of Devops II'                                  UNION ALL
+  SELECT 'MGMT13','Head of Devops'                                   UNION ALL
+  SELECT 'MGMT13','VP of Engineering II'                             UNION ALL
+  SELECT 'MGMT13','Head of Engineering'                              UNION ALL
+  SELECT 'MGMT13','VP of Marketing Technology II'                    UNION ALL
+  SELECT 'MGMT13','Head of Marketing Technology'                     UNION ALL
+  SELECT 'MGMT13','VP of QA II'                                      UNION ALL
+  SELECT 'MGMT13','Head of QA'                                       UNION ALL
+  SELECT 'MGMT13','VP of UX II'                                      UNION ALL
+  SELECT 'MGMT13','Head of Design'                                   UNION ALL
+  SELECT 'MGMT14','Chief AI Officer'                                 UNION ALL
+  SELECT 'MGMT14','Chief Data Officer'                               UNION ALL
+  SELECT 'MGMT14','Chief Quality Officer'                            UNION ALL
+  SELECT 'MGMT14','Chief Reliability Officer'                        UNION ALL
+  SELECT 'MGMT14','Chief Usability Officer'                          UNION ALL
+  SELECT 'MGMT14','CMO'                                              UNION ALL
+  SELECT 'MGMT14','CTO'                                              UNION ALL
+  SELECT 'MGMT14','SVP'                                              UNION ALL
+  SELECT 'MGMT14','GM'                                               UNION ALL
+  SELECT 'MGMT14','CXO'                                              UNION ALL
   SELECT 'MGMT15','CEO'
 ) AS d ON g.name = d.grade;
 
@@ -893,24 +866,17 @@ SET foreign_key_checks = 1;
 -- END OF MYSQL SCHEMA
 -- ============================================================================
 --
--- IMPORTANT NOTES FOR RUNNING THIS APP WITH MYSQL
--- -------------------------------------------------
--- This codebase currently uses @supabase/supabase-js, which provides:
---   • Instant REST API over PostgreSQL
---   • JWT-based Row Level Security (RLS)
---   • Built-in Auth (email/password sessions)
---   • Realtime subscriptions
---   • Edge Functions (Deno serverless)
+-- MIGRATION NOTES FOR RUNNING THIS APP AGAINST MYSQL
+-- ---------------------------------------------------
+-- This frontend uses @supabase/supabase-js which provides a REST API,
+-- JWT auth, and Row Level Security out of the box. To wire up MySQL you need:
 --
--- To run against MySQL you will additionally need:
---   1. A REST API layer   — e.g. Node.js + Express + mysql2 (or Prisma/TypeORM)
---   2. Authentication     — e.g. JWT middleware, bcrypt password hashing
---   3. Access control     — replace RLS with API-level middleware checks
---   4. Replace all        — supabase.from(...).select/insert/update/delete calls
---      in src/ with fetch() calls to your new API endpoints
---   5. Remove Supabase    — Edge Functions (supabase/functions/) and replace
---      with Express routes or equivalent
+--   1. REST API layer  — Node.js + Express + mysql2 (or Prisma / TypeORM)
+--   2. Authentication  — JWT middleware + bcrypt password hashing in auth_users
+--   3. Access control  — replace RLS with API-level middleware role checks
+--   4. RPC calls       — replace supabase.rpc('activate_cycle_reset_forms', ...)
+--                        with POST /api/cycles/:id/activate etc.
+--   5. Edge Functions  — replace supabase/functions/ with Express routes
 --
--- The MySQL schema above captures 100% of the data model. The application
--- logic migration is a separate backend engineering effort.
+-- The MySQL schema above is a 100% faithful data model translation.
 -- ============================================================================
