@@ -184,7 +184,29 @@ CREATE TABLE IF NOT EXISTS users (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
--- 3b. review_cycles
+-- 3b-sso. sso_config  (DB-driven SSO feature flags; mirrors Supabase sso_config table)
+--   In MySQL, RLS is replaced by application-layer access control.
+--   Admin-only writes; any user (including unauthenticated) can read.
+CREATE TABLE IF NOT EXISTS sso_config (
+  id          CHAR(36)     NOT NULL DEFAULT (UUID()),
+  provider    VARCHAR(50)  NOT NULL,
+  enabled     TINYINT(1)   NOT NULL DEFAULT 0,
+  client_id   TEXT         DEFAULT NULL,
+  updated_by  CHAR(36)     DEFAULT NULL,
+  updated_at  DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+                           ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_sso_config_provider (provider),
+  CONSTRAINT fk_sso_config_updated_by FOREIGN KEY (updated_by)
+    REFERENCES users (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Seed the Google provider row (disabled by default)
+INSERT IGNORE INTO sso_config (provider, enabled, client_id)
+  VALUES ('google', 0, NULL);
+
+
+-- 3c. review_cycles
 CREATE TABLE IF NOT EXISTS review_cycles (
   id                CHAR(36)     NOT NULL DEFAULT (UUID()),
   name              VARCHAR(255) NOT NULL,
@@ -327,6 +349,7 @@ CREATE INDEX idx_settings_designations_grade_id ON settings_designations (grade_
 CREATE INDEX idx_sfv_cycle_id                   ON skill_form_versions  (cycle_id);
 CREATE INDEX idx_sfv_employee_id                ON skill_form_versions  (employee_id);
 CREATE INDEX idx_review_cycles_status           ON review_cycles        (status);
+CREATE INDEX idx_sso_config_provider             ON sso_config           (provider);
 
 
 -- ============================================================================

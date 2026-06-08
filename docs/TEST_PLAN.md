@@ -2,7 +2,7 @@
 
 ## Overview
 
-The test suite uses **Vitest** with **@testing-library/react** for component and hook tests. All tests live under `src/test/`. There are currently **212+ tests across 14 test files**.
+The test suite uses **Vitest** with **@testing-library/react** for component and hook tests. All tests live under `src/test/`. There are currently **230+ tests across 14 test files**.
 
 Run the full suite:
 
@@ -19,7 +19,7 @@ npx vitest run     # single run, CI
 |------|--------------|-------|
 | `schema.test.ts` | Zod schemas, form constants, factories | 59 |
 | `ToastContext.test.tsx` | Toast rendering, auto-dismiss, limits | 14 |
-| `AuthContext.test.tsx` | Auth state, sign-in/out, error guard | 12 |
+| `AuthContext.test.tsx` | Auth state, sign-in/out, Google SSO, error guard | 18 |
 | `CycleContext.test.tsx` | Cycle context state, active cycle, Realtime | ~15 |
 | `FormContext.test.tsx` | Form context state, setters, error guard | 12 |
 | `useSkillRatings.test.ts` | Skill ratings hook (DB fetch, fallback) | 13 |
@@ -97,9 +97,13 @@ Supabase is fully mocked using `vi.hoisted()` to ensure mock variables are initi
 | With session — profile loaded, role correct | 3 |
 | `signIn` — correct credentials passed, success/error returned | 3 |
 | `signOut` — calls supabase.auth.signOut | 1 |
+| `signInWithGoogle` — calls supabase.auth.signInWithOAuth with `provider: 'google'` | 1 |
+| `signInWithGoogle` — returns `{ error: null }` on success | 1 |
+| `signInWithGoogle` — returns `{ error }` on failure | 1 |
 | Error guard — throws outside AuthProvider | 1 |
 
 The mock chain: `getSession → { data: { session } }`, `from().select().eq().maybeSingle() → { data: profile }`.
+`signInWithOAuth` is mocked via `mockSignInWithOAuth` in `vi.hoisted()`.
 
 ---
 
@@ -287,6 +291,62 @@ Mock `supabase.rpc` and verify `CyclesPage.handleActivate`:
 | RPC succeeds | Cycle shows as active in UI, success toast shown |
 | RPC returns error | Error toast shown, cycle status unchanged |
 | RPC called with correct `p_cycle_id` | Argument matches the activated cycle's `id` |
+
+---
+
+### SSO Configuration Panel (`SsoConfigPanel` in `AdminPage.tsx`)
+
+Mock `supabase.from('sso_config')` and verify:
+
+| Scenario | Expected |
+|----------|----------|
+| Renders toggle and Client ID input | Both present on mount |
+| Fetches current config on mount | `from('sso_config').select('*').eq('provider','google')` called |
+| Toggle reflects DB `enabled` state | When DB returns `enabled: true`, toggle is checked |
+| Save calls update with correct payload | `from('sso_config').update({ enabled, client_id, updated_by, updated_at }).eq('provider','google')` |
+| Save success shows success toast | Toast message visible after save |
+| Save error shows error toast | Error message visible on DB failure |
+
+---
+
+### `signInWithGoogle` via `AuthContext`
+
+These scenarios should be covered in `AuthContext.test.tsx`:
+
+| Scenario | Expected |
+|----------|----------|
+| Calls `supabase.auth.signInWithOAuth` with `{ provider: 'google' }` | `mockSignInWithOAuth` receives correct args |
+| Returns `{ error: null }` when `signInWithOAuth` resolves without error | Result error is null |
+| Returns `{ error }` when `signInWithOAuth` returns an error | Error propagated correctly |
+
+---
+
+### `LoginPage` — Google SSO Button Visibility
+
+Mock `supabase.from('sso_config')` and verify:
+
+| Scenario | Expected |
+|----------|----------|
+| `sso_config` returns `enabled: false` | Google button NOT rendered |
+| `sso_config` returns `enabled: true` | Google button rendered |
+| `sso_config` fetch fails | Google button NOT rendered (safe fallback) |
+| `sso_config` returns `enabled: true` and button clicked | `signInWithGoogle()` called |
+
+---
+
+### Role Assignment Panel (`RoleAssignPanel` in `AdminPage.tsx`)
+
+Mock `supabase.from('users')` and verify:
+
+| Scenario | Expected |
+|----------|----------|
+| Email search returns no user | "No user found" message shown |
+| Email search returns a user | User card with name, email, current role rendered |
+| Role dropdown changes | New role reflected in UI |
+| Assign button with same role | Button disabled, "no change" state |
+| Assign button with new role | `from('users').update({ role }).eq('id', foundUser.id)` called |
+| Update succeeds | Success toast, role badge updated in UI |
+| Update fails | Error toast shown |
 
 ---
 

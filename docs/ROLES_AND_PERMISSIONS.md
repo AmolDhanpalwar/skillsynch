@@ -59,6 +59,8 @@ Full system access.
 - Can reset user passwords
 - Can assign or change any user's role
 - Has access to the Admin page
+- Can configure Google SSO (enable/disable, set Client ID) via the SSO Configuration panel
+- Can assign roles to any user by email lookup via the Role Assignment panel (particularly useful for promoting users to `tmg` or `management`)
 
 ---
 
@@ -92,6 +94,8 @@ Full system access.
 | Reset user passwords | — | — | — | — | Y |
 | Deactivate users | — | — | — | — | Y |
 | Change user roles | — | — | — | — | Y |
+| Configure Google SSO (enable/disable, set Client ID) | — | — | — | — | Y |
+| Assign roles by email lookup | — | — | — | — | Y |
 
 ---
 
@@ -164,6 +168,20 @@ The sidebar renders only the links relevant to the authenticated user's role.
 | Employee Settings | — | — | Y | — | Y |
 | Admin | — | — | — | — | Y |
 | Power BI Guide | Y | Y | Y | Y | Y |
+
+---
+
+## SSO Configuration Access
+
+The `sso_config` table uses three RLS policies:
+
+| Policy | Who | Permission |
+|---|---|---|
+| `admin_all_sso_config` | `admin` role (authenticated) | Full CRUD |
+| `authenticated_read_sso_config` | Any authenticated user | SELECT only |
+| `anon_read_sso_config` | Unauthenticated (anon key) | SELECT only |
+
+The anon read policy is required so the login page can check `enabled` before the user has a session. It does **not** expose secrets — `client_id` is a public OAuth client identifier, not a secret.
 
 ---
 

@@ -334,7 +334,15 @@ INSERT IGNORE INTO notifications (id, user_id, type, message, is_read, form_id, 
 
 
 -- ============================================================================
--- 10. RE-ENABLE FOREIGN KEY CHECKS
+-- 10. SSO CONFIG
+-- ============================================================================
+
+INSERT IGNORE INTO sso_config (id, provider, enabled, client_id, updated_by, updated_at) VALUES
+  (UUID(), 'google', 0, NULL, NULL, '2026-06-08 11:40:03.000000');
+
+
+-- ============================================================================
+-- 11. RE-ENABLE FOREIGN KEY CHECKS
 -- ============================================================================
 
 SET foreign_key_checks = 1;
@@ -352,6 +360,7 @@ SET foreign_key_checks = 1;
 --   skill_forms           :  2 rows  (active cycle, both draft)
 --   skill_items           : 17 rows  (across 2 forms)
 --   skill_form_versions   :  6 rows  (5 from Mid-Yr-2026, 1 from suspended cycle)
+--   sso_config            :  1 row   (google provider, disabled)
 --   notifications         : 29 rows
 --   settings_skill_ratings:  5 rows
 --   settings_grades       : 23 rows  (IC01-IC12, MGMT05-MGMT15)

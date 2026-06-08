@@ -10,12 +10,14 @@ const {
   mockGetSession,
   mockSignInWithPassword,
   mockSignOut,
+  mockSignInWithOAuth,
   mockOnAuthStateChange,
   mockFrom,
 } = vi.hoisted(() => ({
   mockGetSession: vi.fn(),
   mockSignInWithPassword: vi.fn(),
   mockSignOut: vi.fn(),
+  mockSignInWithOAuth: vi.fn(),
   mockOnAuthStateChange: vi.fn(),
   mockFrom: vi.fn(),
 }));
@@ -26,6 +28,7 @@ vi.mock('../lib/supabaseClient', () => ({
       getSession: mockGetSession,
       signInWithPassword: mockSignInWithPassword,
       signOut: mockSignOut,
+      signInWithOAuth: mockSignInWithOAuth,
       onAuthStateChange: mockOnAuthStateChange,
     },
     from: mockFrom,
@@ -44,6 +47,7 @@ function setupMocks({
   session = null as null | { user: { id: string } },
   profile = mockUserProfile as UserProfile | null,
   signInError = null as Error | null,
+  oauthError = null as Error | null,
 } = {}) {
   mockGetSession.mockResolvedValue({ data: { session } });
   mockOnAuthStateChange.mockImplementation((_cb: unknown) => ({
@@ -57,6 +61,7 @@ function setupMocks({
 
   mockSignInWithPassword.mockResolvedValue({ error: signInError });
   mockSignOut.mockResolvedValue({});
+  mockSignInWithOAuth.mockResolvedValue({ error: oauthError });
 }
 
 // ─── Consumer ────────────────────────────────────────────────────────────────
@@ -188,6 +193,65 @@ describe('AuthContext — signOut', () => {
     await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
     await user.click(screen.getByText('Sign Out'));
     expect(mockSignOut).toHaveBeenCalled();
+  });
+});
+
+describe('AuthContext — signInWithGoogle', () => {
+  it('calls supabase.auth.signInWithOAuth with provider "google"', async () => {
+    setupMocks({ session: null });
+    let result: { error: Error | null } | undefined;
+    function CaptureGoogle() {
+      const { signInWithGoogle } = useAuth();
+      return (
+        <button onClick={async () => { result = await signInWithGoogle(); }}>
+          Google
+        </button>
+      );
+    }
+    const user = userEvent.setup();
+    render(<AuthProvider><CaptureGoogle /></AuthProvider>);
+    await waitFor(() => {});
+    await user.click(screen.getByText('Google'));
+    expect(mockSignInWithOAuth).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'google' })
+    );
+  });
+
+  it('returns { error: null } when signInWithOAuth resolves without error', async () => {
+    setupMocks({ session: null, oauthError: null });
+    let result: { error: Error | null } | undefined;
+    function CaptureGoogle() {
+      const { signInWithGoogle } = useAuth();
+      return (
+        <button onClick={async () => { result = await signInWithGoogle(); }}>
+          Google
+        </button>
+      );
+    }
+    const user = userEvent.setup();
+    render(<AuthProvider><CaptureGoogle /></AuthProvider>);
+    await waitFor(() => {});
+    await user.click(screen.getByText('Google'));
+    expect(result?.error).toBeNull();
+  });
+
+  it('returns { error } when signInWithOAuth returns an error', async () => {
+    const oauthErr = new Error('OAuth failed');
+    setupMocks({ session: null, oauthError: oauthErr });
+    let result: { error: Error | null } | undefined;
+    function CaptureGoogle() {
+      const { signInWithGoogle } = useAuth();
+      return (
+        <button onClick={async () => { result = await signInWithGoogle(); }}>
+          Google
+        </button>
+      );
+    }
+    const user = userEvent.setup();
+    render(<AuthProvider><CaptureGoogle /></AuthProvider>);
+    await waitFor(() => {});
+    await user.click(screen.getByText('Google'));
+    expect(result?.error).toBe(oauthErr);
   });
 });
 

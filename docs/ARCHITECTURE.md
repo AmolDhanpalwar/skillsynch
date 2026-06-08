@@ -20,9 +20,9 @@ SkillSync is a single-page application (SPA) built with React and backed entirel
 │                                                     │
 │  ┌──────────┐  ┌──────────────────┐  ┌───────────┐ │
 │  │  Auth    │  │ Postgres + RLS   │  │  Edge Fn  │ │
-│  │          │  │ + SECURITY DEF   │  │  (Deno)   │ │
-│  └──────────┘  └──────────────────┘  └───────────┘ │
-│                      │                              │
+│  │ (email + │  │ + SECURITY DEF   │  │  (Deno)   │ │
+│  │  Google) │  └──────────────────┘  └───────────┘ │
+│  └──────────┘        │                              │
 │               ┌──────────────┐                      │
 │               │   Realtime   │ (notifications,      │
 │               └──────────────┘  cycle changes)      │
@@ -119,7 +119,7 @@ AppShell
 
 | Context | File | Purpose | Key exports |
 |---|---|---|---|
-| `AuthContext` | `src/context/AuthContext.tsx` | Supabase session + user profile | `user`, `session`, `loading`, `signIn()`, `signOut()`, `refreshProfile()` |
+| `AuthContext` | `src/context/AuthContext.tsx` | Supabase session + user profile | `user`, `session`, `loading`, `signIn()`, `signInWithGoogle()`, `signOut()`, `refreshProfile()` |
 | `CycleContext` | `src/context/CycleContext.tsx` | Active review cycle + all cycles | `activeCycle`, `cycles`, `loading` |
 | `FormContext` | `src/context/FormContext.tsx` | Step navigation within SkillFormPage | `currentStep`, `setCurrentStep`, `formId`, `formStatus` |
 | `NotificationContext` | `src/context/NotificationContext.tsx` | Real-time notification feed | `notifications`, `unreadCount`, `markRead()`, `markAllRead()` |
@@ -145,6 +145,49 @@ All cycle-aware pages call `useCycle()` and filter data by `activeCycle.id`. Whe
 
 ---
 
+## Authentication
+
+### Email / Password (always available)
+
+The default authentication method. Users sign in with their email and password via Supabase Auth.
+
+```
+signInWithPassword(email, password)
+  └── onAuthStateChange fires
+        └── fetchProfile() → SELECT * FROM users WHERE id = auth.uid()
+              └── sets user: UserProfile in context
+                    └── PrivateRoute evaluates user.role → redirect or render
+```
+
+### Google SSO (admin-configurable)
+
+Google OAuth 2.0 can be enabled by an admin via the Admin page. When enabled, a "Continue with Google" button appears on the login page.
+
+```
+Admin configures in AdminPage:
+  └── sso_config (provider = 'google', enabled = true, client_id = '...')
+
+LoginPage:
+  └── On mount: SELECT enabled FROM sso_config WHERE provider = 'google'
+        └── If enabled → show Google button
+              └── onClick → supabase.auth.signInWithOAuth({ provider: 'google' })
+                    └── Browser redirect → Google OAuth consent screen
+                          └── Callback to VITE_SUPABASE_URL/auth/v1/callback
+                                └── Supabase exchanges code → creates session
+                                      └── onAuthStateChange fires
+                                            └── fetchProfile() → load user
+```
+
+**Prerequisites to enable Google SSO:**
+1. Create OAuth 2.0 credentials in Google Cloud Console → APIs & Services → Credentials
+2. Set Authorised redirect URI to: `https://<project>.supabase.co/auth/v1/callback`
+3. Enable Google provider in Supabase Dashboard → Authentication → Providers → Google (paste Client ID + Secret)
+4. In the Admin page → SSO Configuration panel: paste Client ID, toggle Enable, save
+
+**New user handling:** When a Google-authenticated user logs in for the first time, Supabase creates the `auth.users` entry. The application's `AuthContext.fetchProfile()` will find no row in `public.users` (null result). The admin must manually create the user profile (or a trigger can be added to auto-create it). Until a profile row exists, the user will see a blank state and cannot access role-protected routes.
+
+---
+
 ## Review Cycle Lifecycle
 
 ```
@@ -166,20 +209,22 @@ All cycle-aware pages call `useCycle()` and filter data by `activeCycle.id`. Whe
                     │   Managers review & approve        │
                     │   On approval → snapshot created   │
                     └─────────────────┬─────────────────┘
-                                      │ Close
-                    ┌─────────────────▼─────────────────┐
-                    │           CLOSED cycle             │
-                    │   Immutable. Data in snapshots.    │
-                    │   Visible via CycleSelectorDropdown│
-                    └───────────────────────────────────┘
+                     ┌────────────────┴────────────────┐
+                     │ Close                           │ Suspend
+                    ┌▼─────────────────┐  ┌───────────▼──────────────┐
+                    │   CLOSED cycle   │  │   SUSPENDED cycle         │
+                    │ Immutable.       │  │ Can be un-suspended or    │
+                    │ Data in snapshots│  │ permanently closed.        │
+                    └──────────────────┘  └──────────────────────────┘
 ```
 
 ### Key Invariants
 
-- Only one cycle can be `active` at a time (enforced in application logic; future: DB constraint)
+- Only one cycle can be `active` at a time (enforced in application logic; DB trigger enforces in MySQL)
 - `activate_cycle_reset_forms(p_cycle_id)` is called as an RPC — it runs as a SECURITY DEFINER function and bypasses RLS to reset all `skill_forms` to `draft` and assign `cycle_id`
 - When a form is approved, the `trg_skill_form_approval_snapshot` trigger fires and inserts a JSONB snapshot into `skill_form_versions`; this snapshot is the permanent historical record for that employee + cycle pair
 - Closed cycles are read from `skill_form_versions` snapshots — the live `skill_forms` table only holds the current cycle's data
+- Suspended cycles retain approved forms in `skill_form_versions`; non-approved forms are purged
 
 ---
 
@@ -287,6 +332,34 @@ ManagerReviewPage
 
 ---
 
+## Admin Panel Features
+
+The Admin page (`src/pages/AdminPage.tsx`) provides the following capabilities to users with the `admin` role:
+
+### User Management
+- Create new users (calls `admin-create-user` Edge Function)
+- Change any user's role via inline dropdown (all 5 roles)
+- Reset any user's password (calls `admin-reset-password` Edge Function)
+- Activate / deactivate user accounts
+- Search and filter users by name, email, or role
+
+### SSO Configuration
+- Enable or disable Google SSO for the entire organization
+- Set the Google OAuth Client ID
+- Configuration persisted in the `sso_config` database table
+- The login page reads this config on every load (anon-readable RLS policy) and conditionally shows the Google button
+
+### Role Assignment by Email
+- Lookup any user by their exact email address
+- Preview their current role and profile
+- Assign any role (employee, manager, tmg, management, admin) in a single click
+- Designed for quickly promoting users to `tmg` or `management` without scrolling the full user list
+
+### Demo Data
+- Reset all user data to the seeded demo state
+
+---
+
 ## Backend
 
 ### Supabase Client (`src/lib/supabaseClient.ts`)
@@ -333,18 +406,6 @@ Edge Functions run in Deno using the service role key (available automatically a
 | `add-sample-employees` | POST (dev utility) | Insert additional sample employee data |
 
 All Edge Functions implement CORS headers and wrap their body in `try/catch` to return structured JSON errors.
-
-### Authentication
-
-Supabase Auth handles session management. On successful login the client stores the JWT in `localStorage`. `AuthContext` listens to `onAuthStateChange` and re-fetches the `users` profile row on every session event.
-
-```
-signInWithPassword(email, password)
-  └── onAuthStateChange fires
-        └── fetchProfile() → SELECT * FROM users WHERE id = auth.uid()
-              └── sets user: UserProfile in context
-                    └── PrivateRoute evaluates user.role → redirect or render
-```
 
 ---
 

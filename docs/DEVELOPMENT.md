@@ -221,6 +221,61 @@ Function code lives in `supabase/functions/<slug>/index.ts`. Always:
 
 ---
 
+## Google SSO Configuration
+
+Google SSO is database-driven. When enabled, a "Continue with Google" button appears on the login page. All configuration is stored in the `sso_config` table and managed through the Admin panel.
+
+### Prerequisites
+
+Before enabling Google SSO in the Admin panel, you must configure Google OAuth in two places:
+
+#### 1. Google Cloud Console
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials
+2. Create an **OAuth 2.0 Client ID** (Application type: Web application)
+3. Add your Supabase callback URL to **Authorized redirect URIs**:
+   ```
+   https://<your-project-ref>.supabase.co/auth/v1/callback
+   ```
+4. Copy the **Client ID** (you will need it in step 3 below)
+
+#### 2. Supabase Dashboard
+
+1. Open your Supabase project → Authentication → Providers → Google
+2. Toggle **Google** to **enabled**
+3. Paste the **Client ID** and **Client Secret** from Google Cloud Console
+4. Save
+
+#### 3. SkillSync Admin Panel
+
+1. Sign in as an `admin` user
+2. Navigate to the **Admin** page
+3. In the **SSO Configuration** panel, enter the Google **Client ID**
+4. Toggle **Enable Google SSO** to on and click **Save**
+5. The login page will now show the Google button
+
+### How It Works
+
+The login page fetches `sso_config` on mount using an anon-accessible RLS policy — before the user is authenticated. This means the Google button only appears when the admin has enabled it in the DB, with no code deploy required.
+
+```typescript
+// LoginPage.tsx — fetch on mount (anon-accessible)
+const { data } = await supabase
+  .from('sso_config')
+  .select('enabled')
+  .eq('provider', 'google')
+  .maybeSingle();
+setSsoEnabled(data?.enabled ?? false);
+```
+
+OAuth uses the redirect flow (not popup): the browser navigates to Google's consent page, then returns to `window.location.origin` where Supabase exchanges the code for a session.
+
+### First-Time Google Users
+
+When a user signs in with Google for the first time, Supabase creates an `auth.users` entry automatically. However, the corresponding `public.users` profile row must be created manually by an admin (or add a `handle_new_user` trigger). Until the profile exists, the user will see a loading state and be signed out.
+
+---
+
 ## Database Migrations
 
 Apply migrations using `mcp__supabase__apply_migration`. See [DATABASE.md — Migrations](DATABASE.md#migrations) for conventions and the full migration history.
