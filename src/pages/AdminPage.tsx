@@ -12,6 +12,8 @@ import {
   ToggleLeft,
   ToggleRight,
   Shield,
+  KeyRound,
+  UserCog,
 } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
 import { SkeletonTableRows } from '../components/ui/Skeleton';
@@ -49,6 +51,8 @@ const ROLE_BADGE: Record<UserRole, string> = {
 function getInitials(name: string) {
   return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
 }
+
+// ─── Create User Modal ───────────────────────────────────────────────────────
 
 interface CreateUserModalProps {
   onClose: () => void;
@@ -191,6 +195,271 @@ function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
   );
 }
 
+// ─── SSO Config Panel ────────────────────────────────────────────────────────
+
+interface SsoConfig {
+  id: string;
+  enabled: boolean;
+  client_id: string | null;
+}
+
+function SsoConfigPanel() {
+  const [config, setConfig] = useState<SsoConfig | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [clientId, setClientId] = useState('');
+  const [enabled, setEnabled] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    supabase
+      .from('sso_config')
+      .select('id, enabled, client_id')
+      .eq('provider', 'google')
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          setConfig(data as SsoConfig);
+          setEnabled(data.enabled);
+          setClientId(data.client_id ?? '');
+        }
+        setLoading(false);
+      });
+  }, []);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    if (enabled && !clientId.trim()) {
+      setError('Google Client ID is required when SSO is enabled.');
+      return;
+    }
+    setSaving(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    const userId = session?.user?.id ?? null;
+
+    const { error: dbErr } = await supabase
+      .from('sso_config')
+      .update({
+        enabled,
+        client_id: clientId.trim() || null,
+        updated_by: userId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('provider', 'google');
+
+    setSaving(false);
+    if (dbErr) {
+      setError('Failed to save. ' + dbErr.message);
+    } else {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <Loader2 size={20} className="animate-spin text-gray-300" />
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSave} className="space-y-5">
+      {error && (
+        <div className="p-3 rounded-xl bg-red-50 border border-red-100 text-xs text-red-700 font-body">
+          {error}
+        </div>
+      )}
+
+      {/* Enable toggle */}
+      <div className="flex items-center justify-between p-4 rounded-xl border border-gray-100 bg-gray-50/60">
+        <div>
+          <p className="text-sm font-semibold font-heading text-gray-800">Enable Google SSO</p>
+          <p className="text-xs text-gray-500 font-body mt-0.5">
+            When enabled, users will see a "Continue with Google" button on the login page.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setEnabled((v) => !v)}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none ${enabled ? 'bg-primary-500' : 'bg-gray-200'}`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${enabled ? 'translate-x-6' : 'translate-x-1'}`}
+          />
+        </button>
+      </div>
+
+      {/* Client ID */}
+      <div className="space-y-1.5">
+        <label className="text-xs font-semibold font-heading text-gray-700">
+          Google OAuth Client ID
+          {enabled && <span className="text-red-500 ml-1">*</span>}
+        </label>
+        <input
+          type="text"
+          value={clientId}
+          onChange={(e) => setClientId(e.target.value)}
+          placeholder="xxxxxx.apps.googleusercontent.com"
+          className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm font-body text-gray-700 outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-100 transition-all font-mono"
+        />
+        <p className="text-[11px] text-gray-400 font-body leading-relaxed">
+          Create a credential in Google Cloud Console → APIs &amp; Services → Credentials.
+          Set Authorised redirect URI to:
+          <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-600 ml-1 text-[10px]">
+            {import.meta.env.VITE_SUPABASE_URL}/auth/v1/callback
+          </span>
+        </p>
+      </div>
+
+      {/* Important note */}
+      <div className="p-3.5 rounded-xl border border-amber-100 bg-amber-50 text-xs text-amber-800 font-body leading-relaxed">
+        <strong className="font-heading">Important:</strong> You must also enable the Google provider in your
+        Supabase project under{' '}
+        <span className="font-mono text-[11px]">Authentication → Providers → Google</span>{' '}
+        and paste the same Client ID &amp; Secret there.
+        This panel only controls whether the button appears on the login page.
+      </div>
+
+      <button
+        type="submit"
+        disabled={saving}
+        className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 disabled:opacity-60 text-white text-sm font-semibold font-heading transition-all shadow-sm shadow-primary-200"
+      >
+        {saving ? <Loader2 size={14} className="animate-spin" /> : saved ? <Check size={14} /> : <KeyRound size={14} />}
+        {saved ? 'Saved!' : saving ? 'Saving…' : 'Save SSO Settings'}
+      </button>
+
+      {config && (
+        <p className="text-[11px] text-gray-400 font-body">
+          Last updated: {new Date(config.id ? '' : '').toString() === 'Invalid Date' ? '—' : '—'}
+          {' '}Status: <span className={`font-semibold ${enabled ? 'text-emerald-600' : 'text-gray-500'}`}>{enabled ? 'Enabled' : 'Disabled'}</span>
+        </p>
+      )}
+    </form>
+  );
+}
+
+// ─── Role Assignment by Email ─────────────────────────────────────────────────
+
+function RoleAssignPanel() {
+  const [emailQuery, setEmailQuery] = useState('');
+  const [found, setFound] = useState<AdminUser | null | 'not-found'>(null);
+  const [searching, setSearching] = useState(false);
+  const [selectedRole, setSelectedRole] = useState<UserRole>('employee');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [searchError, setSearchError] = useState('');
+
+  async function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    setSearchError('');
+    setFound(null);
+    setSaved(false);
+    if (!emailQuery.trim()) return;
+    setSearching(true);
+    const { data } = await supabase
+      .from('users')
+      .select('id, full_name, email, role, designation, grade, is_active, created_at')
+      .ilike('email', emailQuery.trim())
+      .maybeSingle();
+    setSearching(false);
+    if (!data) {
+      setFound('not-found');
+      setSearchError(`No user found with email "${emailQuery.trim()}"`);
+    } else {
+      setFound(data as AdminUser);
+      setSelectedRole((data as AdminUser).role);
+    }
+  }
+
+  async function handleAssign() {
+    if (!found || found === 'not-found') return;
+    setSaving(true);
+    await supabase.from('users').update({ role: selectedRole }).eq('id', found.id);
+    setFound({ ...found, role: selectedRole });
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 3000);
+  }
+
+  return (
+    <div className="space-y-5">
+      <form onSubmit={handleSearch} className="flex gap-2">
+        <input
+          type="email"
+          value={emailQuery}
+          onChange={(e) => { setEmailQuery(e.target.value); setFound(null); setSaved(false); setSearchError(''); }}
+          placeholder="user@company.com"
+          className="flex-1 px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm font-body text-gray-800 outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-100 transition-all"
+        />
+        <button
+          type="submit"
+          disabled={searching || !emailQuery.trim()}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-800 hover:bg-gray-900 disabled:opacity-50 text-white text-sm font-semibold font-heading transition-all"
+        >
+          {searching ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+          Lookup
+        </button>
+      </form>
+
+      {searchError && (
+        <div className="p-3 rounded-xl bg-red-50 border border-red-100 text-xs text-red-700 font-body">
+          {searchError}
+        </div>
+      )}
+
+      {found && found !== 'not-found' && (
+        <div className="p-4 rounded-xl border border-gray-100 bg-gray-50/60 space-y-4">
+          {/* User preview */}
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full bg-primary-100 flex items-center justify-center shrink-0">
+              <span className="text-primary-600 text-[11px] font-bold font-heading">{getInitials(found.full_name)}</span>
+            </div>
+            <div>
+              <p className="font-semibold font-heading text-gray-800 text-sm">{found.full_name}</p>
+              <p className="text-xs text-gray-500 font-body">{found.email}</p>
+            </div>
+            <span className={`ml-auto text-[11px] font-semibold font-heading px-2.5 py-1 rounded-full ${ROLE_BADGE[found.role]}`}>
+              {ROLES.find(r => r.value === found.role)?.label ?? found.role}
+            </span>
+          </div>
+
+          {/* Role selector */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold font-heading text-gray-700">Assign New Role</label>
+            <div className="relative">
+              <select
+                value={selectedRole}
+                onChange={(e) => { setSelectedRole(e.target.value as UserRole); setSaved(false); }}
+                className="w-full appearance-none px-3.5 pr-9 py-2.5 rounded-xl border border-gray-200 text-sm font-body text-gray-800 bg-white outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-100 transition-all cursor-pointer"
+              >
+                {ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+              </select>
+              <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleAssign}
+            disabled={saving || selectedRole === found.role}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 disabled:opacity-50 text-white text-sm font-semibold font-heading transition-all"
+          >
+            {saving ? <Loader2 size={14} className="animate-spin" /> : saved ? <Check size={14} /> : <UserCog size={14} />}
+            {saved ? 'Role Updated!' : saving ? 'Updating…' : selectedRole === found.role ? 'Same role — no change' : `Assign ${ROLES.find(r => r.value === selectedRole)?.label}`}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
 export default function AdminPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -282,6 +551,7 @@ export default function AdminPage() {
           </button>
         </div>
 
+        {/* ── User Table ── */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="flex items-center gap-2.5 px-5 py-4 border-b border-gray-100">
             <div className="w-8 h-8 rounded-xl bg-primary-50 flex items-center justify-center shrink-0">
@@ -421,6 +691,39 @@ export default function AdminPage() {
           )}
         </div>
 
+        {/* ── Bottom two-column grid ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+          {/* SSO Configuration */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+            <div className="flex items-center gap-2.5 mb-5">
+              <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center">
+                <KeyRound size={15} className="text-blue-500" />
+              </div>
+              <div>
+                <h2 className="font-heading font-bold text-base text-gray-900">Single Sign-On (SSO)</h2>
+                <p className="text-xs text-gray-400 font-body">Configure Google OAuth for your organisation</p>
+              </div>
+            </div>
+            <SsoConfigPanel />
+          </div>
+
+          {/* Role assignment by email */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+            <div className="flex items-center gap-2.5 mb-5">
+              <div className="w-8 h-8 rounded-xl bg-violet-50 flex items-center justify-center">
+                <UserCog size={15} className="text-violet-500" />
+              </div>
+              <div>
+                <h2 className="font-heading font-bold text-base text-gray-900">Assign Role by Email</h2>
+                <p className="text-xs text-gray-400 font-body">Look up any user and assign TMG, Management or other roles</p>
+              </div>
+            </div>
+            <RoleAssignPanel />
+          </div>
+        </div>
+
+        {/* ── System Settings ── */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <div className="flex items-center gap-2.5 mb-5">
             <div className="w-8 h-8 rounded-xl bg-amber-50 flex items-center justify-center">
