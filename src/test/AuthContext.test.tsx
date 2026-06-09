@@ -23,7 +23,7 @@ const {
 }));
 
 vi.mock('../lib/db', () => ({
-  supabase: {
+  db: {
     auth: {
       getSession: mockGetSession,
       signInWithPassword: mockSignInWithPassword,

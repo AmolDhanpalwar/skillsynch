@@ -5,7 +5,7 @@ import {
   Trash2, PauseCircle, Ban,
 } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
-import { supabase } from '../lib/db';
+import { db } from '../lib/db';
 import { callEdgeFn } from '../lib/edgeFunctions';
 import { useCycle } from '../context/CycleContext';
 import { useAuth } from '../context/AuthContext';
@@ -154,8 +154,8 @@ function CycleModal({ initial, onClose, onSaved }: CycleModalProps) {
     };
 
     const { error } = isEdit
-      ? await supabase.from('review_cycles').update(payload).eq('id', initial!.id!)
-      : await supabase.from('review_cycles').insert(payload);
+      ? await db.from('review_cycles').update(payload).eq('id', initial!.id!)
+      : await db.from('review_cycles').insert(payload);
 
     setSaving(false);
     if (error) {
@@ -544,7 +544,7 @@ export default function CyclesPage() {
     setProgressLoading(true);
 
     // Single query: all employees
-    const { data: empData } = await supabase
+    const { data: empData } = await db
       .from('users')
       .select('id, full_name, email, designation')
       .eq('role', 'employee')
@@ -555,7 +555,7 @@ export default function CyclesPage() {
 
     // Fetch forms for all relevant cycle ids in one shot
     const cycleIds = cycles.map((c) => c.id);
-    const { data: formsData } = await supabase
+    const { data: formsData } = await db
       .from('skill_forms')
       .select('id, employee_id, status, cycle_id')
       .in('cycle_id', cycleIds);
@@ -633,7 +633,7 @@ export default function CyclesPage() {
 
   async function handleClose(cycle: ReviewCycle) {
     setClosingId(cycle.id);
-    const { error } = await supabase
+    const { error } = await db
       .from('review_cycles')
       .update({ status: 'closed', closed_at: new Date().toISOString() })
       .eq('id', cycle.id);
@@ -649,7 +649,7 @@ export default function CyclesPage() {
 
   async function handleDelete(cycle: ReviewCycle) {
     setDeleting(true);
-    const { error } = await supabase
+    const { error } = await db
       .from('review_cycles')
       .delete()
       .eq('id', cycle.id)

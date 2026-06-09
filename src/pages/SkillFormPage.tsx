@@ -15,7 +15,7 @@ import Step4Plans from './form/Step4Plans';
 import { FormProvider, useFormContext } from '../context/FormContext';
 import { useAuth } from '../context/AuthContext';
 import { useCycle } from '../context/CycleContext';
-import { supabase } from '../lib/db';
+import { db } from '../lib/db';
 import { exportSkillAssessmentReport, exportSkillAssessmentFromSnapshot } from '../lib/exportService';
 import type { SkillFormVersion } from '../types';
 import { CYCLE_TYPE_LABELS } from '../types';
@@ -437,9 +437,9 @@ function SkillFormInner() {
       })),
     ].filter((item) => item.name.trim() !== '');
 
-    await supabase.from('skill_items').delete().eq('form_id', fid);
+    await db.from('skill_items').delete().eq('form_id', fid);
     if (allItems.length > 0) {
-      await supabase.from('skill_items').insert(allItems);
+      await db.from('skill_items').insert(allItems);
     }
   }
 
@@ -502,7 +502,7 @@ function SkillFormInner() {
       grade: values.grade,
       manager_id: resolvedManagerId,
     };
-    await supabase.from('users').update(userUpdate).eq('id', user.id);
+    await db.from('users').update(userUpdate).eq('id', user.id);
     await refreshProfile();
 
     const savedId = data?.id ?? formId;
@@ -571,7 +571,7 @@ function SkillFormInner() {
     const notifyManagerId = savedForm?.manager_id ?? user.manager_id ?? null;
 
     if (notifyManagerId) {
-      await supabase.from('notifications').insert({
+      await db.from('notifications').insert({
         user_id: notifyManagerId,
         type: 'form_submitted',
         message: `${user.full_name || user.email} submitted their Skill Profile.`,

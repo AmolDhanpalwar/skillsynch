@@ -25,7 +25,7 @@ import {
   LabelList,
 } from 'recharts';
 import AppShell from '../components/layout/AppShell';
-import { supabase } from '../lib/db';
+import { db } from '../lib/db';
 import type { FormStatus } from '../types';
 
 const BRAND = {
@@ -71,9 +71,9 @@ function avg(nums: number[]): number {
 
 async function fetchAnalyticsData(): Promise<AnalyticsData> {
   const [{ count: totalEmployees }, { data: formsRaw }, { data: skillItemsRaw }] = await Promise.all([
-    supabase.from('users').select('*', { count: 'exact', head: true }).eq('role', 'employee'),
-    supabase.from('skill_forms').select('id, status, certifications'),
-    supabase.from('skill_items').select('form_id, category, name, employee_rating, manager_rating'),
+    db.from('users').select('*', { count: 'exact', head: true }).eq('role', 'employee'),
+    db.from('skill_forms').select('id, status, certifications'),
+    db.from('skill_items').select('form_id, category, name, employee_rating, manager_rating'),
   ]);
 
   const forms = formsRaw ?? [];

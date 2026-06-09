@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
 import { Skeleton } from '../components/ui/Skeleton';
-import { supabase } from '../lib/db';
+import { db } from '../lib/db';
 import { exportSkillSettings } from '../lib/exportService';
 
 type TableName =
@@ -112,7 +112,7 @@ function useSettingsData(table: TableName) {
   async function fetch() {
     setLoading(true);
     setError(null);
-    const { data, error: err } = await supabase
+    const { data, error: err } = await db
       .from(table)
       .select('id, name, is_active, is_haptiq_demand, created_at')
       .order('name', { ascending: true });
@@ -547,7 +547,7 @@ function SkillRatingsPanel() {
       setEditError('Label already exists'); return;
     }
     setSavingId(item.id);
-    const { error } = await supabase.from('settings_skill_ratings').update({ label: trimmed }).eq('id', item.id);
+    const { error } = await db.from('settings_skill_ratings').update({ label: trimmed }).eq('id', item.id);
     if (error) { setEditError(error.message); } else {
       setItems((prev) => prev.map((i) => i.id === item.id ? { ...i, label: trimmed } : i));
       cancelEdit();
@@ -557,7 +557,7 @@ function SkillRatingsPanel() {
 
   async function handleToggle(item: RatingItem) {
     setSavingId(item.id);
-    const { error } = await supabase.from('settings_skill_ratings').update({ is_active: !item.is_active }).eq('id', item.id);
+    const { error } = await db.from('settings_skill_ratings').update({ is_active: !item.is_active }).eq('id', item.id);
     if (!error) setItems((prev) => prev.map((i) => i.id === item.id ? { ...i, is_active: !item.is_active } : i));
     setSavingId(null);
   }

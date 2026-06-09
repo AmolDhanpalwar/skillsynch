@@ -17,7 +17,7 @@ import {
 import AppShell from '../components/layout/AppShell';
 import Toast from '../components/form/Toast';
 import { SkeletonListItem } from '../components/ui/Skeleton';
-import { supabase } from '../lib/db';
+import { db } from '../lib/db';
 import { exportSkillAssessmentReport } from '../lib/exportService';
 import { useAuth } from '../context/AuthContext';
 import { useCycle } from '../context/CycleContext';
@@ -121,7 +121,7 @@ export default function InboxPage() {
     if (!user) return;
     async function load() {
       setLoading(true);
-      let q = supabase
+      let q = db
         .from('skill_forms')
         .select(
           'id, status, submitted_at, updated_at, users!skill_forms_employee_id_fkey(id, full_name, email, designation, grade)'

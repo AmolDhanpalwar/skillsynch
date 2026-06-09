@@ -11,7 +11,7 @@ const { mockFrom, mockChannel } = vi.hoisted(() => ({
 }));
 
 vi.mock('../lib/db', () => ({
-  supabase: {
+  db: {
     from: mockFrom,
     channel: mockChannel,
     removeChannel: vi.fn(),

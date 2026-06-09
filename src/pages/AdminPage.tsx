@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
 import { SkeletonTableRows } from '../components/ui/Skeleton';
-import { supabase } from '../lib/db';
+import { db } from '../lib/db';
 import { callEdgeFn } from '../lib/edgeFunctions';
 import { seedUsersIfEmpty } from '../lib/seedUsers';
 import type { UserRole } from '../types';
@@ -203,7 +203,7 @@ function SsoConfigPanel() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    supabase
+    db
       .from('sso_config')
       .select('id, enabled, client_id')
       .eq('provider', 'google')
@@ -226,10 +226,10 @@ function SsoConfigPanel() {
       return;
     }
     setSaving(true);
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await db.auth.getSession();
     const userId = session?.user?.id ?? null;
 
-    const { error: dbErr } = await supabase
+    const { error: dbErr } = await db
       .from('sso_config')
       .update({
         enabled,
@@ -351,7 +351,7 @@ function RoleAssignPanel() {
     setSaved(false);
     if (!emailQuery.trim()) return;
     setSearching(true);
-    const { data } = await supabase
+    const { data } = await db
       .from('users')
       .select('id, full_name, email, role, designation, grade, is_active, created_at')
       .ilike('email', emailQuery.trim())
@@ -369,7 +369,7 @@ function RoleAssignPanel() {
   async function handleAssign() {
     if (!found || found === 'not-found') return;
     setSaving(true);
-    await supabase.from('users').update({ role: selectedRole }).eq('id', found.id);
+    await db.from('users').update({ role: selectedRole }).eq('id', found.id);
     setFound({ ...found, role: selectedRole });
     setSaving(false);
     setSaved(true);
@@ -463,7 +463,7 @@ export default function AdminPage() {
   const [seedMsg, setSeedMsg] = useState('');
 
   async function loadUsers() {
-    const { data } = await supabase
+    const { data } = await db
       .from('users')
       .select('id, full_name, email, role, designation, grade, is_active, created_at')
       .order('full_name');
@@ -486,7 +486,7 @@ export default function AdminPage() {
 
   async function handleRoleChange(userId: string, newRole: UserRole) {
     setSavingId(userId);
-    await supabase.from('users').update({ role: newRole }).eq('id', userId);
+    await db.from('users').update({ role: newRole }).eq('id', userId);
     setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, role: newRole } : u));
     setSavingId(null);
   }
@@ -502,7 +502,7 @@ export default function AdminPage() {
 
   async function handleToggleActive(userId: string, current: boolean) {
     setTogglingId(userId);
-    await supabase.from('users').update({ is_active: !current }).eq('id', userId);
+    await db.from('users').update({ is_active: !current }).eq('id', userId);
     setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, is_active: !current } : u));
     setTogglingId(null);
   }
@@ -510,7 +510,7 @@ export default function AdminPage() {
   async function handleResetDemo() {
     setSeedingDemo(true);
     setSeedMsg('');
-    await supabase.from('users').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    await db.from('users').delete().neq('id', '00000000-0000-0000-0000-000000000000');
     await seedUsersIfEmpty();
     await loadUsers();
     setSeedMsg('Demo data has been reset.');

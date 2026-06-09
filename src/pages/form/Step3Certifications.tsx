@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Trash2, Plus, Lock, Award, Search, X, ChevronDown, Loader2 } from 'lucide-react';
 import type { Step3Values } from '../../types/form';
-import { supabase } from '../../lib/db';
+import { db } from '../../lib/db';
 
 interface Step3CertificationsProps {
   values: Step3Values;
@@ -10,7 +10,7 @@ interface Step3CertificationsProps {
 }
 
 async function fetchCertifications(): Promise<string[]> {
-  const { data } = await supabase
+  const { data } = await db
     .from('settings_certifications')
     .select('name')
     .eq('is_active', true)

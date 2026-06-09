@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
 import { Skeleton } from '../components/ui/Skeleton';
-import { supabase } from '../lib/db';
+import { db } from '../lib/db';
 import { exportEmpSettings } from '../lib/exportService';
 
 interface GradeRow {
@@ -58,8 +58,8 @@ export default function EmpSettingsPage() {
   useEffect(() => {
     async function load() {
       const [gradesRes, desigRes] = await Promise.all([
-        supabase.from('settings_grades').select('id, name, sort_order, is_active').order('sort_order'),
-        supabase.from('settings_designations').select('id, grade_id, name, is_active').order('name'),
+        db.from('settings_grades').select('id, name, sort_order, is_active').order('sort_order'),
+        db.from('settings_designations').select('id, grade_id, name, is_active').order('name'),
       ]);
       const g = (gradesRes.data ?? []) as GradeRow[];
       setGrades(g);
@@ -84,7 +84,7 @@ export default function EmpSettingsPage() {
   }
 
   async function handleToggleGrade(grade: GradeRow) {
-    await supabase.from('settings_grades').update({ is_active: !grade.is_active }).eq('id', grade.id);
+    await db.from('settings_grades').update({ is_active: !grade.is_active }).eq('id', grade.id);
     setGrades((prev) => prev.map((g) => g.id === grade.id ? { ...g, is_active: !g.is_active } : g));
   }
 
@@ -98,7 +98,7 @@ export default function EmpSettingsPage() {
     }
     setAddingDesig(true);
     setAddDesigError(null);
-    const { data, error: err } = await supabase
+    const { data, error: err } = await db
       .from('settings_designations')
       .insert({ grade_id: selectedGradeId, name: trimmed })
       .select('id, grade_id, name, is_active')
@@ -115,7 +115,7 @@ export default function EmpSettingsPage() {
 
   async function handleToggleDesignation(d: DesignationRow) {
     setSavingDesigId(d.id);
-    await supabase.from('settings_designations').update({ is_active: !d.is_active }).eq('id', d.id);
+    await db.from('settings_designations').update({ is_active: !d.is_active }).eq('id', d.id);
     setDesignations((prev) => prev.map((item) => item.id === d.id ? { ...item, is_active: !item.is_active } : item));
     setSavingDesigId(null);
   }
@@ -136,7 +136,7 @@ export default function EmpSettingsPage() {
       return;
     }
     setSavingDesigId(d.id);
-    const { error: err } = await supabase.from('settings_designations').update({ name: trimmed }).eq('id', d.id);
+    const { error: err } = await db.from('settings_designations').update({ name: trimmed }).eq('id', d.id);
     if (err) { setEditDesigError(err.message); setSavingDesigId(null); return; }
     setDesignations((prev) =>
       prev.map((x) => x.id === d.id ? { ...x, name: trimmed } : x).sort((a, b) => a.name.localeCompare(b.name))

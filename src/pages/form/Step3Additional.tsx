@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Trash2, Lock, Search, X, ChevronDown, Loader2, Server } from 'lucide-react';
 import type { SkillRow, SkillRating, SkillRatingOption, StepAdditionalValues } from '../../types/form';
 import { makeSkillRow } from '../../types/form';
-import { supabase } from '../../lib/db';
+import { db } from '../../lib/db';
 import { useSkillRatings } from '../../lib/useSkillRatings';
 
 export interface Step3AdditionalHandle {

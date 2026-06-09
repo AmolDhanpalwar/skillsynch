@@ -1,8 +1,8 @@
-import { supabase } from './db';
+import { db } from './db';
 
 export async function seedUsersIfEmpty(): Promise<void> {
   try {
-    const { count } = await supabase
+    const { count } = await db
       .from('users')
       .select('*', { count: 'exact', head: true });
 

@@ -5,7 +5,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { supabase } from '../lib/db';
+import { db } from '../lib/db';
 import { useAuth } from './AuthContext';
 
 export interface Notification {
@@ -81,7 +81,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     pollingRef.current = setInterval(fetchNotifications, 60_000);
 
     return () => {
-      supabase.removeChannel(channel);
+      db.removeChannel(channel);
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
   }, [user?.id]);

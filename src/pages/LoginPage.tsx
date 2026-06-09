@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, LogIn, AlertCircle, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { supabase } from '../lib/db';
+import { db } from '../lib/db';
 import { getRoleHomePath } from '../types';
 
 function GoogleIcon() {
@@ -32,7 +32,7 @@ export default function LoginPage() {
   const [ssoLoaded, setSsoLoaded] = useState(false);
 
   useEffect(() => {
-    supabase
+    db
       .from('sso_config')
       .select('enabled')
       .eq('provider', 'google')

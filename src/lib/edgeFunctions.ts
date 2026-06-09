@@ -1,4 +1,4 @@
-import { supabase } from './db';
+import { db } from './db';
 
 // Resolve the correct base URL based on the active DB provider.
 // - Supabase: edge functions live at <SUPABASE_URL>/functions/v1/<slug>
@@ -9,7 +9,7 @@ const BASE_URL = _provider === 'mysql'
   : (import.meta.env.VITE_SUPABASE_URL as string);
 
 async function getAuthHeader(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
+  const { data } = await db.auth.getSession();
   const token = data.session?.access_token;
   return token ? { Authorization: `Bearer ${token}` } : {};
 }

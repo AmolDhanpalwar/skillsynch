@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { supabase } from './db';
+import { db } from './db';
 import type { SkillRatingOption } from '../types/form';
 
 const FALLBACK: SkillRatingOption[] = [
@@ -15,7 +15,7 @@ export function useSkillRatings() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase
+    db
       .from('settings_skill_ratings')
       .select('sort_order, label')
       .eq('is_active', true)

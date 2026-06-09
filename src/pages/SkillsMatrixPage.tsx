@@ -34,7 +34,7 @@ import {
 import AppShell from '../components/layout/AppShell';
 import { Skeleton } from '../components/ui/Skeleton';
 import CycleSelectorDropdown from '../components/ui/CycleSelectorDropdown';
-import { supabase } from '../lib/db';
+import { db } from '../lib/db';
 import { exportSkillsMatrix } from '../lib/exportService';
 import { useCycle } from '../context/CycleContext';
 
@@ -826,12 +826,12 @@ export default function SkillsMatrixPage() {
     if (cycleId) {
       // Load from skill_form_versions snapshots for a closed cycle
       const [{ data: versions }, langRes, fwRes, toolRes, dbRes, certRes] = await Promise.all([
-        supabase.from('skill_form_versions').select('snapshot').eq('cycle_id', cycleId),
-        supabase.from('settings_languages').select('name, is_haptiq_demand'),
-        supabase.from('settings_frameworks').select('name, is_haptiq_demand'),
-        supabase.from('settings_tools').select('name, is_haptiq_demand'),
-        supabase.from('settings_databases').select('name, is_haptiq_demand'),
-        supabase.from('settings_certifications').select('name, is_haptiq_demand'),
+        db.from('skill_form_versions').select('snapshot').eq('cycle_id', cycleId),
+        db.from('settings_languages').select('name, is_haptiq_demand'),
+        db.from('settings_frameworks').select('name, is_haptiq_demand'),
+        db.from('settings_tools').select('name, is_haptiq_demand'),
+        db.from('settings_databases').select('name, is_haptiq_demand'),
+        db.from('settings_certifications').select('name, is_haptiq_demand'),
       ]);
 
       const snapshots = (versions ?? []).map((v) => v.snapshot as Record<string, unknown>);
@@ -904,13 +904,13 @@ export default function SkillsMatrixPage() {
     }
 
     const [formsRes, itemsRes, langRes, fwRes, toolRes, dbRes, certRes] = await Promise.all([
-      supabase.from('skill_forms').select('id, status, tools, databases, certifications'),
-      supabase.from('skill_items').select('category, name, employee_rating, manager_rating'),
-      supabase.from('settings_languages').select('name, is_haptiq_demand'),
-      supabase.from('settings_frameworks').select('name, is_haptiq_demand'),
-      supabase.from('settings_tools').select('name, is_haptiq_demand'),
-      supabase.from('settings_databases').select('name, is_haptiq_demand'),
-      supabase.from('settings_certifications').select('name, is_haptiq_demand'),
+      db.from('skill_forms').select('id, status, tools, databases, certifications'),
+      db.from('skill_items').select('category, name, employee_rating, manager_rating'),
+      db.from('settings_languages').select('name, is_haptiq_demand'),
+      db.from('settings_frameworks').select('name, is_haptiq_demand'),
+      db.from('settings_tools').select('name, is_haptiq_demand'),
+      db.from('settings_databases').select('name, is_haptiq_demand'),
+      db.from('settings_certifications').select('name, is_haptiq_demand'),
     ]);
 
     const forms = formsRes.data ?? [];

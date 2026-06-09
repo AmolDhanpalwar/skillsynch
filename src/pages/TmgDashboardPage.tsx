@@ -22,7 +22,7 @@ import ExportModal from '../components/export/ExportModal';
 import Toast from '../components/form/Toast';
 import { SkeletonTableRows } from '../components/ui/Skeleton';
 import CycleSelectorDropdown from '../components/ui/CycleSelectorDropdown';
-import { supabase } from '../lib/db';
+import { db } from '../lib/db';
 import { exportSkillAssessmentReport } from '../lib/exportService';
 import { useCycle } from '../context/CycleContext';
 import type { FormStatus } from '../types';
@@ -90,7 +90,7 @@ function ChangeManagerModal({ employee, onClose, onChanged }: ChangeManagerModal
     if (!query.trim() || selected) { setResults([]); setSearched(false); return; }
     debounceRef.current = setTimeout(async () => {
       setSearching(true);
-      const { data } = await supabase
+      const { data } = await db
         .from('users')
         .select('id, full_name, email')
         .ilike('full_name', `%${query.trim()}%`)
@@ -121,16 +121,16 @@ function ChangeManagerModal({ employee, onClose, onChanged }: ChangeManagerModal
 
     if (selected) {
       // DB user selected — link by ID
-      await supabase.from('users').update({ manager_id: selected.id }).eq('id', employee.id);
+      await db.from('users').update({ manager_id: selected.id }).eq('id', employee.id);
       if (employee.form_id) {
-        await supabase.from('skill_forms').update({ manager_id: selected.id }).eq('id', employee.form_id);
+        await db.from('skill_forms').update({ manager_id: selected.id }).eq('id', employee.form_id);
       }
       onChanged(employee.id, selected.id, selected.full_name);
     } else {
       // Manual entry — store name + email on the form only; no user row to link
-      await supabase.from('users').update({ manager_id: null }).eq('id', employee.id);
+      await db.from('users').update({ manager_id: null }).eq('id', employee.id);
       if (employee.form_id) {
-        await supabase.from('skill_forms').update({ manager_id: null }).eq('id', employee.form_id);
+        await db.from('skill_forms').update({ manager_id: null }).eq('id', employee.form_id);
       }
       onChanged(employee.id, null, query.trim());
     }

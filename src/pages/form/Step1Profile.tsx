@@ -3,7 +3,7 @@ import type { UseFormReturn } from 'react-hook-form';
 import { User, Clock, UserCheck, Search, X, Loader2, ChevronDown } from 'lucide-react';
 import FormField from '../../components/form/FormField';
 import type { Step1Input, Step1Values } from '../../types/form';
-import { supabase } from '../../lib/db';
+import { db } from '../../lib/db';
 import { useAuth } from '../../context/AuthContext';
 
 interface Step1ProfileProps {
@@ -205,8 +205,8 @@ export default function Step1Profile({ form, onOptionsLoaded }: Step1ProfileProp
   useEffect(() => {
     async function loadOptions() {
       const [gradesRes, desigRes] = await Promise.all([
-        supabase.from('settings_grades').select('id, name, sort_order').eq('is_active', true).order('sort_order'),
-        supabase.from('settings_designations').select('id, grade_id, name').eq('is_active', true).order('name'),
+        db.from('settings_grades').select('id, name, sort_order').eq('is_active', true).order('sort_order'),
+        db.from('settings_designations').select('id, grade_id, name').eq('is_active', true).order('name'),
       ]);
       const loadedGrades = gradesRes.data ?? [];
       const loadedDesignations = desigRes.data ?? [];

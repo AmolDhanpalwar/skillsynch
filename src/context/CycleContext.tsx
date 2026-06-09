@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { supabase } from '../lib/db';
+import { db } from '../lib/db';
 import type { ReviewCycle } from '../types';
 
 interface CycleContextType {
@@ -21,7 +21,7 @@ export function CycleProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    const { data } = await supabase
+    const { data } = await db
       .from('review_cycles')
       .select('*')
       .order('created_at', { ascending: false });
@@ -37,14 +37,14 @@ export function CycleProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     refresh();
 
-    const channel = supabase
+    const channel = db
       .channel('review_cycles_changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'review_cycles' }, () => {
         refresh();
       })
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    return () => { db.removeChannel(channel); };
   }, [refresh]);
 
   return (

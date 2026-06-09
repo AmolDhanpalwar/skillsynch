@@ -17,7 +17,7 @@ import AppShell from '../components/layout/AppShell';
 import Toast from '../components/form/Toast';
 import { Skeleton } from '../components/ui/Skeleton';
 import CycleSelectorDropdown from '../components/ui/CycleSelectorDropdown';
-import { supabase } from '../lib/db';
+import { db } from '../lib/db';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useCycle } from '../context/CycleContext';
@@ -141,7 +141,7 @@ export default function DashboardPage() {
     }
     async function load() {
       // Filter by active cycle if one exists — ensures we show current cycle status
-      let q = supabase
+      let q = db
         .from('skill_forms')
         .select('id, status, updated_at, submitted_at, total_exp, current_project');
 
@@ -165,7 +165,7 @@ export default function DashboardPage() {
     }
     async function loadSnapshot() {
       setLoadingSnapshot(true);
-      const { data } = await supabase
+      const { data } = await db
         .from('skill_form_versions')
         .select('snapshot, approved_at, review_cycles(name)')
         .eq('employee_id', user!.id)

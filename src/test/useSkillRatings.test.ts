@@ -12,7 +12,7 @@ const { mockOrder, mockEq, mockSelect, mockFrom } = vi.hoisted(() => ({
 }));
 
 vi.mock('../lib/db', () => ({
-  supabase: {
+  db: {
     from: mockFrom,
   },
 }));

@@ -1,11 +1,9 @@
 // ─── Supabase Adapter ─────────────────────────────────────────────────────────
 // Thin wrapper that satisfies DbClient by delegating to @supabase/supabase-js.
-// When VITE_DB_PROVIDER=supabase, this is the active provider and the full
-// Supabase type system is preserved.
+// When VITE_DB_PROVIDER=supabase (default), this is the active provider.
 
-import { supabase } from '../supabaseClient';
+import { supabaseClient } from './supabase-client';
 import type { DbClient } from './types';
 
-// The Supabase client already implements the DbClient interface structurally.
-// We export it cast to DbClient so the factory returns a uniform type.
-export const supabaseAdapter: DbClient = supabase as unknown as DbClient;
+// The Supabase client already implements DbClient structurally.
+export const supabaseAdapter: DbClient = supabaseClient as unknown as DbClient;

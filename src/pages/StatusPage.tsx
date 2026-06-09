@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
 import { SkeletonTableRows } from '../components/ui/Skeleton';
-import { supabase } from '../lib/db';
+import { db } from '../lib/db';
 import { useCycle } from '../context/CycleContext';
 import type { FormStatus } from '../types';
 
@@ -67,7 +67,7 @@ export default function StatusPage() {
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
-    let formsQuery = supabase
+    let formsQuery = db
       .from('skill_forms')
       .select('id, employee_id, status, submitted_at, reminders_sent');
 
@@ -76,9 +76,9 @@ export default function StatusPage() {
     }
 
     const [{ data: employees }, { data: forms }, { data: allUsers }] = await Promise.all([
-      supabase.from('users').select('id, full_name, email, manager_id').eq('role', 'employee'),
+      db.from('users').select('id, full_name, email, manager_id').eq('role', 'employee'),
       formsQuery,
-      supabase.from('users').select('id, full_name').eq('is_active', true),
+      db.from('users').select('id, full_name').eq('is_active', true),
     ]);
 
     const managerMap: Record<string, string> = {};

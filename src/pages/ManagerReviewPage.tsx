@@ -32,7 +32,7 @@ import Step3CertificationsManager from './form/Step3CertificationsManager';
 import type { Step3CertificationsManagerHandle } from './form/Step3CertificationsManager';
 import Step4PlansManager from './form/Step4PlansManager';
 import type { Step4PlansManagerHandle } from './form/Step4PlansManager';
-import { supabase } from '../lib/db';
+import { db } from '../lib/db';
 import { callEdgeFn } from '../lib/edgeFunctions';
 import { exportSkillAssessmentReport } from '../lib/exportService';
 import { useAuth } from '../context/AuthContext';
@@ -289,16 +289,16 @@ function ChangeManagerModal({ currentManagerName, employeeId, formId, onClose, o
     setSaving(true);
 
     if (selected) {
-      await supabase.from('skill_forms').update({ manager_id: selected.id }).eq('id', formId);
+      await db.from('skill_forms').update({ manager_id: selected.id }).eq('id', formId);
       if (employeeId) {
-        await supabase.from('users').update({ manager_id: selected.id }).eq('id', employeeId);
+        await db.from('users').update({ manager_id: selected.id }).eq('id', employeeId);
       }
       onChanged(selected.full_name, selected.id);
     } else {
       // Manual entry — no linked user row
-      await supabase.from('skill_forms').update({ manager_id: null }).eq('id', formId);
+      await db.from('skill_forms').update({ manager_id: null }).eq('id', formId);
       if (employeeId) {
-        await supabase.from('users').update({ manager_id: null }).eq('id', employeeId);
+        await db.from('users').update({ manager_id: null }).eq('id', employeeId);
       }
       onChanged(query.trim(), null);
     }
@@ -634,8 +634,8 @@ export default function ManagerReviewPage() {
       })),
     ].filter((item) => item.name.trim() !== '');
 
-    await supabase.from('skill_items').delete().eq('form_id', formId);
-    if (allItems.length > 0) await supabase.from('skill_items').insert(allItems);
+    await db.from('skill_items').delete().eq('form_id', formId);
+    if (allItems.length > 0) await db.from('skill_items').insert(allItems);
 
     const patch: Record<string, unknown> = {
       tools_manager_comment: step2.tools_manager_comment,
@@ -646,7 +646,7 @@ export default function ManagerReviewPage() {
       updated_at: new Date().toISOString(),
     };
 
-    const { error } = await supabase.from('skill_forms').update(patch).eq('id', formId);
+    const { error } = await db.from('skill_forms').update(patch).eq('id', formId);
     return !error;
   }
 

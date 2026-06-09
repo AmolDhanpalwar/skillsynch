@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
-import { supabase } from './db';
+import { db } from './db';
 import type { FormStatus } from '../types';
 
 // Haptiq Brand Colors
@@ -400,7 +400,7 @@ function mergeSkillsWithDelta(
 export async function exportSkillAssessmentReport(formId: string): Promise<void> {
   // Load current form + employee data in parallel with version history
   const [{ data: sf, error }, { data: versionsRaw }] = await Promise.all([
-    supabase
+    db
       .from('skill_forms')
       .select(`id, status, submitted_at, approved_at, updated_at, cycle_id,
               total_exp, relevant_exp, haptiq_exp, current_project, tools, databases,
@@ -408,7 +408,7 @@ export async function exportSkillAssessmentReport(formId: string): Promise<void>
               users!skill_forms_employee_id_fkey(id, full_name, email, employee_number, designation, grade, manager_id)`)
       .eq('id', formId)
       .maybeSingle(),
-    supabase
+    db
       .from('skill_form_versions')
       .select('id, cycle_id, snapshot, approved_at, review_cycles(name)')
       .eq('form_id', formId)
@@ -1187,8 +1187,8 @@ export async function exportToExcel(filters: ExportFilters = {}): Promise<void> 
 
 export async function exportSkillsMatrix(): Promise<void> {
   const [formsRes, itemsRes] = await Promise.all([
-    supabase.from('skill_forms').select('id, status, tools, databases, certifications'),
-    supabase.from('skill_items').select('category, name, employee_rating, manager_rating'),
+    db.from('skill_forms').select('id, status, tools, databases, certifications'),
+    db.from('skill_items').select('category, name, employee_rating, manager_rating'),
   ]);
 
   const forms = formsRes.data ?? [];
@@ -1299,7 +1299,7 @@ export async function exportSkillSettings(): Promise<void> {
 
   const results = await Promise.all(
     tables.map(({ key }) =>
-      supabase.from(key).select('name, is_active').order('name')
+      db.from(key).select('name, is_active').order('name')
     )
   );
 
@@ -1325,8 +1325,8 @@ export async function exportSkillSettings(): Promise<void> {
 
 export async function exportEmpSettings(): Promise<void> {
   const [gradesRes, designationsRes] = await Promise.all([
-    supabase.from('settings_grades').select('name, is_active').order('name'),
-    supabase.from('settings_designations').select('name, is_active').order('name'),
+    db.from('settings_grades').select('name, is_active').order('name'),
+    db.from('settings_designations').select('name, is_active').order('name'),
   ]);
 
   const grades = (gradesRes.data ?? []) as Array<{ name: string; is_active: boolean }>;
