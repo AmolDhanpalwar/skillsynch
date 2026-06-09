@@ -22,7 +22,7 @@ import ExportModal from '../components/export/ExportModal';
 import Toast from '../components/form/Toast';
 import { SkeletonTableRows } from '../components/ui/Skeleton';
 import CycleSelectorDropdown from '../components/ui/CycleSelectorDropdown';
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from '../lib/db';
 import { exportSkillAssessmentReport } from '../lib/exportService';
 import { useCycle } from '../context/CycleContext';
 import type { FormStatus } from '../types';

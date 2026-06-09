@@ -5,7 +5,7 @@ import {
   Trash2, PauseCircle, Ban,
 } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from '../lib/db';
 import { callEdgeFn } from '../lib/edgeFunctions';
 import { useCycle } from '../context/CycleContext';
 import { useAuth } from '../context/AuthContext';

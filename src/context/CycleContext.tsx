@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from '../lib/db';
 import type { ReviewCycle } from '../types';
 
 interface CycleContextType {

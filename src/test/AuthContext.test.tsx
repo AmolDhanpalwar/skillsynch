@@ -22,7 +22,7 @@ const {
   mockFrom: vi.fn(),
 }));
 
-vi.mock('../lib/supabaseClient', () => ({
+vi.mock('../lib/db', () => ({
   supabase: {
     auth: {
       getSession: mockGetSession,

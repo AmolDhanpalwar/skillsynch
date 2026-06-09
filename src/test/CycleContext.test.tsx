@@ -10,7 +10,7 @@ const { mockFrom, mockChannel } = vi.hoisted(() => ({
   mockChannel: vi.fn(),
 }));
 
-vi.mock('../lib/supabaseClient', () => ({
+vi.mock('../lib/db', () => ({
   supabase: {
     from: mockFrom,
     channel: mockChannel,

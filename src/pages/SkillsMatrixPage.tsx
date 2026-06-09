@@ -34,7 +34,7 @@ import {
 import AppShell from '../components/layout/AppShell';
 import { Skeleton } from '../components/ui/Skeleton';
 import CycleSelectorDropdown from '../components/ui/CycleSelectorDropdown';
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from '../lib/db';
 import { exportSkillsMatrix } from '../lib/exportService';
 import { useCycle } from '../context/CycleContext';
 

@@ -11,7 +11,7 @@ const { mockOrder, mockEq, mockSelect, mockFrom } = vi.hoisted(() => ({
   mockFrom: vi.fn(),
 }));
 
-vi.mock('../lib/supabaseClient', () => ({
+vi.mock('../lib/db', () => ({
   supabase: {
     from: mockFrom,
   },

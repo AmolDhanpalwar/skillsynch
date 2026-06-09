@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
-import { supabase } from './supabaseClient';
+import { supabase } from './db';
 import type { FormStatus } from '../types';
 
 // Haptiq Brand Colors

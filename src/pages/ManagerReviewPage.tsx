@@ -32,7 +32,7 @@ import Step3CertificationsManager from './form/Step3CertificationsManager';
 import type { Step3CertificationsManagerHandle } from './form/Step3CertificationsManager';
 import Step4PlansManager from './form/Step4PlansManager';
 import type { Step4PlansManagerHandle } from './form/Step4PlansManager';
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from '../lib/db';
 import { callEdgeFn } from '../lib/edgeFunctions';
 import { exportSkillAssessmentReport } from '../lib/exportService';
 import { useAuth } from '../context/AuthContext';

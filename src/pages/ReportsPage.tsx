@@ -25,7 +25,7 @@ import {
   LabelList,
 } from 'recharts';
 import AppShell from '../components/layout/AppShell';
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from '../lib/db';
 import type { FormStatus } from '../types';
 
 const BRAND = {

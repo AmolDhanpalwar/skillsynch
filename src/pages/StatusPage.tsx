@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
 import { SkeletonTableRows } from '../components/ui/Skeleton';
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from '../lib/db';
 import { useCycle } from '../context/CycleContext';
 import type { FormStatus } from '../types';
 

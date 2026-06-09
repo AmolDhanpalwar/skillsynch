@@ -17,7 +17,7 @@ import {
 import AppShell from '../components/layout/AppShell';
 import Toast from '../components/form/Toast';
 import { SkeletonListItem } from '../components/ui/Skeleton';
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from '../lib/db';
 import { exportSkillAssessmentReport } from '../lib/exportService';
 import { useAuth } from '../context/AuthContext';
 import { useCycle } from '../context/CycleContext';

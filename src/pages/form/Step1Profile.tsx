@@ -3,7 +3,7 @@ import type { UseFormReturn } from 'react-hook-form';
 import { User, Clock, UserCheck, Search, X, Loader2, ChevronDown } from 'lucide-react';
 import FormField from '../../components/form/FormField';
 import type { Step1Input, Step1Values } from '../../types/form';
-import { supabase } from '../../lib/supabaseClient';
+import { supabase } from '../../lib/db';
 import { useAuth } from '../../context/AuthContext';
 
 interface Step1ProfileProps {

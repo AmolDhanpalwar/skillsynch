@@ -17,7 +17,7 @@ import AppShell from '../components/layout/AppShell';
 import Toast from '../components/form/Toast';
 import { Skeleton } from '../components/ui/Skeleton';
 import CycleSelectorDropdown from '../components/ui/CycleSelectorDropdown';
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from '../lib/db';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useCycle } from '../context/CycleContext';

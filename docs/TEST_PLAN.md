@@ -213,23 +213,31 @@ All 4 statuses (`draft`, `pending_review`, `returned`, `approved`) render the co
 
 ### Supabase client
 
-Always mock via `vi.hoisted()` + `vi.mock('../lib/supabaseClient', ...)` to avoid hoisting errors:
+Always mock via `vi.hoisted()` + `vi.mock('../lib/db', ...)` to avoid hoisting errors.
+The mock path changed from `'../lib/supabaseClient'` to `'../lib/db'` after the provider abstraction was introduced:
 
 ```typescript
 const { mockFrom } = vi.hoisted(() => ({ mockFrom: vi.fn() }));
 
-vi.mock('../lib/supabaseClient', () => ({
+vi.mock('../lib/db', () => ({
   supabase: { from: mockFrom },
 }));
 ```
 
-For RPC calls, mock `supabase.rpc`:
+For auth mocking:
 
 ```typescript
-const { mockRpc } = vi.hoisted(() => ({ mockRpc: vi.fn() }));
+const { mockAuth } = vi.hoisted(() => ({
+  mockAuth: {
+    getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+    onAuthStateChange: vi.fn().mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } } }),
+    signInWithPassword: vi.fn(),
+    signOut: vi.fn(),
+  },
+}));
 
-vi.mock('../lib/supabaseClient', () => ({
-  supabase: { from: mockFrom, rpc: mockRpc },
+vi.mock('../lib/db', () => ({
+  supabase: { from: mockFrom, auth: mockAuth },
 }));
 ```
 
@@ -374,4 +382,84 @@ The following are intentionally excluded from unit tests — they require live S
 - `CyclesPage` — requires live Supabase RPC and Realtime
 - Edge functions (`admin-create-user`, `admin-reset-password`, etc.) — tested via Supabase dashboard
 - Export service (`exportService.ts`) XLSX/PDF generation — DOM and blob APIs not available in jsdom; helper functions are tested via `exportServiceHelpers.test.ts`
+
+---
+
+## DB Provider Test Matrix
+
+Both persistence providers must satisfy the same application behaviour. The matrix below defines the minimum scenarios to verify after switching providers.
+
+### Provider: Supabase (default)
+
+Run: `VITE_DB_PROVIDER=supabase npm test`
+
+All existing tests pass with Supabase mocks as-is.
+
+### Provider: MySQL
+
+Run: `VITE_DB_PROVIDER=mysql VITE_MYSQL_API_URL=http://localhost:3001 npm test`
+
+The unit tests still run with the mock layer, so `VITE_DB_PROVIDER=mysql` only affects the factory path. To fully validate the MySQL provider you need **integration tests** against a running MySQL REST API server.
+
+#### MySQL Integration Test Checklist
+
+| Area | Test scenario | Pass criteria |
+|------|--------------|---------------|
+| **Auth** | Sign in with valid credentials | Session returned, JWT stored in localStorage |
+| **Auth** | Sign in with wrong password | Error message displayed on login page |
+| **Auth** | Session persists on refresh | `getSession()` returns stored session from localStorage |
+| **Auth** | Sign out | Session cleared, redirect to `/login` |
+| **Auth** | `onAuthStateChange` fires | `INITIAL_SESSION` event delivered synchronously |
+| **Data** | Load skill form | `skill_forms` + `skill_items` returned correctly |
+| **Data** | Save skill form (update) | `POST /api/db` with `operation: "update"` succeeds |
+| **Data** | Submit skill form | Status transitions to `pending_review` |
+| **Data** | Load notifications | `notifications` table queried with user_id filter |
+| **Data** | Mark notification read | `update` on `notifications` succeeds |
+| **Data** | Load review cycles | `review_cycles` ordered by `created_at` desc |
+| **Data** | Settings tables | All 8 `settings_*` tables return data |
+| **Data** | SSO config | `sso_config` returns `enabled: false` by default |
+| **Filters** | `eq` filter | `WHERE column = value` applied correctly |
+| **Filters** | `in` filter | `WHERE column IN (...)` applied correctly |
+| **Filters** | `ilike` filter | `WHERE column LIKE '%pattern%'` (case-insensitive) |
+| **Filters** | `gte`/`lte` filters | Date range filtering on `approved_at` works |
+| **Result modes** | `maybeSingle` — row exists | Returns the single row object |
+| **Result modes** | `maybeSingle` — no row | Returns `null` (not an empty array) |
+| **Result modes** | `single` — row exists | Returns single row object |
+| **Realtime** | Notifications channel | New notification appears without page reload |
+| **Realtime** | Cycle changes channel | Cycle status update reflected in UI |
+| **Edge Fn equivalent** | Activate cycle | `POST /functions/v1/activate-cycle` resets all forms |
+| **Edge Fn equivalent** | Suspend cycle | `POST /functions/v1/suspend-cycle` purges non-approved |
+| **Edge Fn equivalent** | Approve form | `POST /functions/v1/approve-form` creates snapshot |
+| **Edge Fn equivalent** | Return form | `POST /functions/v1/return-form` notifies employee |
+| **Edge Fn equivalent** | Create user | `POST /functions/v1/admin-create-user` creates auth + profile |
+| **Edge Fn equivalent** | Reset password | `POST /functions/v1/admin-reset-password` changes password |
+| **Row-level access** | Employee reads own form only | `filters: [{ type: 'eq', col: 'employee_id', val: uid }]` enforced server-side |
+| **Row-level access** | Manager reads direct reports | Server adds manager filter |
+
+#### Running the mock tests with mysql provider
+
+```bash
+# The db factory is mocked in tests so this exercises the mock code path
+# for VITE_DB_PROVIDER=mysql without needing a real server
+VITE_DB_PROVIDER=mysql VITE_MYSQL_API_URL=http://localhost:3001 npm run test
+```
+
+#### Mock path for MySQL provider unit tests
+
+```typescript
+// Tests mock the db export — the provider implementation is irrelevant
+vi.mock('../lib/db', () => ({
+  supabase: {
+    from: mockFrom,
+    auth: mockAuth,
+    channel: vi.fn().mockReturnValue({
+      on: vi.fn().mockReturnThis(),
+      subscribe: vi.fn().mockReturnThis(),
+    }),
+    removeChannel: vi.fn(),
+  },
+  activeDbProvider: 'mysql',
+}));
+```
+
 - `skill_form_versions` snapshot trigger — requires live Postgres trigger execution

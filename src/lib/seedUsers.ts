@@ -1,4 +1,4 @@
-import { supabase } from './supabaseClient';
+import { supabase } from './db';
 
 export async function seedUsersIfEmpty(): Promise<void> {
   try {

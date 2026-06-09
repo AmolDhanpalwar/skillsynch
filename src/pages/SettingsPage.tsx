@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
 import { Skeleton } from '../components/ui/Skeleton';
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from '../lib/db';
 import { exportSkillSettings } from '../lib/exportService';
 
 type TableName =

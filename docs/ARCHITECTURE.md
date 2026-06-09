@@ -2,38 +2,68 @@
 
 ## Overview
 
-SkillSync is a single-page application (SPA) built with React and backed entirely by Supabase. There is no custom API server — all data access goes through the Supabase JS client using Row Level Security (RLS) policies to enforce authorization. A small number of Edge Functions handle privileged operations that require the service role key. SECURITY DEFINER PostgreSQL functions handle cycle-scoped state transitions that must bypass RLS.
+SkillSync is a single-page application (SPA) built with React. The persistence layer is **pluggable** — it defaults to Supabase but can be switched to MySQL by setting one environment variable. All data access goes through a **DB Provider abstraction layer** (`src/lib/db/`) that routes calls to the active backend. A set of Edge Functions (Supabase) or equivalent REST routes (MySQL) handle privileged operations requiring service-role credentials.
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    Browser (SPA)                     │
-│                                                     │
-│  React 18 + TypeScript + Vite 5                     │
-│  React Router v7 (client-side routing)              │
-│  React Hook Form + Zod (form state & validation)    │
-│  Tailwind CSS (styling)                             │
-└───────────────────────┬─────────────────────────────┘
-                        │ HTTPS / WebSocket
-                        ▼
-┌─────────────────────────────────────────────────────┐
-│                    Supabase                          │
-│                                                     │
-│  ┌──────────┐  ┌──────────────────┐  ┌───────────┐ │
-│  │  Auth    │  │ Postgres + RLS   │  │  Edge Fn  │ │
-│  │ (email + │  │ + SECURITY DEF   │  │  (Deno)   │ │
-│  │  Google) │  └──────────────────┘  └───────────┘ │
-│  └──────────┘        │                              │
-│               ┌──────────────┐                      │
-│               │   Realtime   │ (notifications,      │
-│               └──────────────┘  cycle changes)      │
-└─────────────────────────────────────────────────────┘
-                        │
-            ┌───────────┴───────────┐
-            │   AWS ECS Fargate     │
-            │   (Docker container)  │
-            │   nginx serving dist/ │
-            └───────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                       Browser (SPA)                          │
+│                                                             │
+│  React 18 + TypeScript + Vite 5                             │
+│  React Router v7  •  React Hook Form + Zod  •  Tailwind     │
+│                                                             │
+│  All DB access via:  import { supabase } from '../lib/db'   │
+│                              ↑                              │
+│          ┌───────────────────┴──────────────────┐           │
+│          │     src/lib/db/ — Provider Factory    │           │
+│          │     VITE_DB_PROVIDER env variable     │           │
+│          └──────────┬──────────────────┬─────────┘           │
+│                     │                  │                     │
+│         ┌───────────▼───┐    ┌─────────▼──────────────┐    │
+│         │SupabaseAdapter│    │   MySQLAdapter           │    │
+│         │(pass-through) │    │   (HTTP query builder)   │    │
+│         └───────────────┘    └────────────────────────┘    │
+└──────────────┬───────────────────────────┬──────────────────┘
+               │ HTTPS / WebSocket          │ HTTPS / REST
+               ▼                            ▼
+   ┌──────────────────────┐    ┌─────────────────────────────┐
+   │      Supabase         │    │   MySQL REST API Server      │
+   │                      │    │   (Express + mysql2)         │
+   │  Auth  •  PostgREST  │    │                             │
+   │  Realtime  •  EdgeFn │    │  POST /api/db               │
+   └──────────────────────┘    │  POST /api/auth/*           │
+                                │  GET  /api/realtime/*       │
+                                │  POST /functions/v1/*       │
+                                └─────────────────────────────┘
+                │
+    ┌───────────┴───────────┐
+    │   AWS ECS Fargate     │
+    │   (Docker container)  │
+    │   nginx serving dist/ │
+    └───────────────────────┘
 ```
+
+See **docs/PERSISTENCY_SWITCH.md** for the complete guide to switching backends.
+
+---
+
+## DB Provider Abstraction Layer
+
+```
+src/lib/db/
+├── index.ts            — Factory: reads VITE_DB_PROVIDER, exports `db`
+├── types.ts            — DbClient, DbAuthProvider, DbQueryBuilder interfaces
+├── supabase-adapter.ts — Thin wrapper re-exporting the Supabase client
+└── mysql-adapter.ts    — MySQLProvider: HTTP query builder + JWT auth
+```
+
+**Switching** requires only a `.env` change:
+
+| `VITE_DB_PROVIDER` | Active adapter | Extra requirements |
+|---|---|---|
+| `supabase` (default) | SupabaseAdapter | `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` |
+| `mysql` | MySQLAdapter | `VITE_MYSQL_API_URL` pointing to a running REST API |
+
+
 
 ---
 
@@ -52,7 +82,9 @@ SkillSync is a single-page application (SPA) built with React and backed entirel
 | Charts | Recharts | 3.x |
 | PDF export | jsPDF | 4.x |
 | Excel export | xlsx | 0.18 |
-| Backend | Supabase (Postgres + Auth + Realtime + Edge Functions) | 2.x SDK |
+| Backend | Supabase (Postgres + Auth + Realtime + Edge Functions) — default | 2.x SDK |
+| DB Abstraction | `src/lib/db/` provider factory (Supabase or MySQL) | — |
+| MySQL option | Express + mysql2 REST API (see docs/PERSISTENCY_SWITCH.md) | — |
 | Tests | Vitest + @testing-library/react | 4.x / 16.x |
 | Container | Docker multi-stage (node:20-alpine + nginx:1.27-alpine) | — |
 | CI/CD | GitHub Actions | — |

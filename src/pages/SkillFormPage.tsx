@@ -15,7 +15,7 @@ import Step4Plans from './form/Step4Plans';
 import { FormProvider, useFormContext } from '../context/FormContext';
 import { useAuth } from '../context/AuthContext';
 import { useCycle } from '../context/CycleContext';
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from '../lib/db';
 import { exportSkillAssessmentReport, exportSkillAssessmentFromSnapshot } from '../lib/exportService';
 import type { SkillFormVersion } from '../types';
 import { CYCLE_TYPE_LABELS } from '../types';

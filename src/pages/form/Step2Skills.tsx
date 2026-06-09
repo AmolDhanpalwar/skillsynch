@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 're
 import { Trash2, Lock, Search, X, ChevronDown, Loader2 } from 'lucide-react';
 import type { SkillRow, SkillRating, SkillRatingOption, Step2Values } from '../../types/form';
 import { makeSkillRow } from '../../types/form';
-import { supabase } from '../../lib/supabaseClient';
+import { supabase } from '../../lib/db';
 import { useSkillRatings } from '../../lib/useSkillRatings';
 
 export interface Step2SkillsHandle {

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Trash2, Plus, Lock, Award, Search, X, ChevronDown, Loader2 } from 'lucide-react';
 import type { Step3Values } from '../../types/form';
-import { supabase } from '../../lib/supabaseClient';
+import { supabase } from '../../lib/db';
 
 interface Step3CertificationsProps {
   values: Step3Values;
