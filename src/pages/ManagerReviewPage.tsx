@@ -33,6 +33,7 @@ import type { Step3CertificationsManagerHandle } from './form/Step3Certification
 import Step4PlansManager from './form/Step4PlansManager';
 import type { Step4PlansManagerHandle } from './form/Step4PlansManager';
 import { supabase } from '../lib/supabaseClient';
+import { callEdgeFn } from '../lib/edgeFunctions';
 import { exportSkillAssessmentReport } from '../lib/exportService';
 import { useAuth } from '../context/AuthContext';
 import { useCycle } from '../context/CycleContext';
@@ -600,7 +601,7 @@ export default function ManagerReviewPage() {
     ];
   }
 
-  async function saveManagerInputs(statusOverride?: FormStatus) {
+  async function saveManagerInputs() {
     if (!formId) return false;
 
     const allItems = [
@@ -645,13 +646,18 @@ export default function ManagerReviewPage() {
       updated_at: new Date().toISOString(),
     };
 
-    if (statusOverride) {
-      patch.status = statusOverride;
-      if (statusOverride === 'approved') patch.approved_at = new Date().toISOString();
-    }
-
     const { error } = await supabase.from('skill_forms').update(patch).eq('id', formId);
     return !error;
+  }
+
+  function buildManagerInputs() {
+    return {
+      tools_manager_comment: step2.tools_manager_comment,
+      databases_manager_comment: step2.databases_manager_comment,
+      environments_manager_comment: stepAdditional.environments_manager_comment,
+      upskilling_plan: step4.upskilling_plan,
+      manager_expectation_plan: step4.manager_expectation_plan,
+    };
   }
 
   async function handleSave() {
@@ -669,40 +675,32 @@ export default function ManagerReviewPage() {
 
   async function handleApprove() {
     setActioning(true);
-    const ok = await saveManagerInputs('approved');
-    if (!ok) { setActioning(false); showToast('Approval failed — please retry.'); return; }
+
+    // Save skill items first so the edge function snapshot captures them
+    const itemsSaved = await saveManagerInputs();
+    if (!itemsSaved) {
+      setActioning(false);
+      showToast('Approval failed — please retry.');
+      return;
+    }
+
+    const { error } = await callEdgeFn('approve-form', {
+      form_id: formId,
+      manager_id: formManagerId ?? null,
+      manager_inputs: buildManagerInputs(),
+      cycle_id: activeCycle?.id ?? null,
+      employee_id: employeeId,
+      cycle_name: activeCycle?.name ?? null,
+      approved_by: user?.id ?? null,
+    });
+
+    if (error) {
+      setActioning(false);
+      showToast(`Approval failed: ${error}`);
+      return;
+    }
+
     setFormStatus('approved');
-
-    // Write immutable version snapshot
-    if (employeeId && activeCycle) {
-      const { data: formSnap } = await supabase
-        .from('skill_forms')
-        .select('*, skill_items(*)')
-        .eq('id', formId!)
-        .maybeSingle();
-
-      if (formSnap) {
-        await supabase.from('skill_form_versions').upsert({
-          cycle_id: activeCycle.id,
-          form_id: formId,
-          employee_id: employeeId,
-          snapshot: formSnap as unknown as Record<string, unknown>,
-          approved_at: new Date().toISOString(),
-          approved_by: user?.id ?? null,
-        }, { onConflict: 'employee_id,cycle_id', ignoreDuplicates: false });
-      }
-    }
-
-    if (employeeId) {
-      await supabase.from('notifications').insert({
-        user_id: employeeId,
-        type: 'form_approved',
-        message: activeCycle
-          ? `Your Skill Profile for "${activeCycle.name}" has been approved.`
-          : 'Your Skill Profile has been approved.',
-        form_id: formId,
-      });
-    }
     setActioning(false);
     setShowApproveModal(false);
     navigate('/inbox', { state: { toast: `${employeeData.full_name}'s Skill Profile approved!` } });
@@ -710,17 +708,25 @@ export default function ManagerReviewPage() {
 
   async function handleReturn(reason: string) {
     setActioning(true);
-    const ok = await saveManagerInputs('returned');
-    if (!ok) { setActioning(false); showToast('Action failed — please retry.'); return; }
-    setFormStatus('returned');
-    if (employeeId) {
-      await supabase.from('notifications').insert({
-        user_id: employeeId,
-        type: 'form_returned',
-        message: `Your Skill Profile was returned for revision. Reason: ${reason}`,
-        form_id: formId,
-      });
+
+    // Save skill items so manager's partial inputs are persisted
+    await saveManagerInputs();
+
+    const { error } = await callEdgeFn('return-form', {
+      form_id: formId,
+      manager_id: formManagerId ?? null,
+      manager_inputs: buildManagerInputs(),
+      employee_id: employeeId,
+      reason,
+    });
+
+    if (error) {
+      setActioning(false);
+      showToast(`Action failed: ${error}`);
+      return;
     }
+
+    setFormStatus('returned');
     setActioning(false);
     setShowReturnModal(false);
     navigate('/inbox', { state: { toast: `Form returned to ${employeeData.full_name} for revision.` } });

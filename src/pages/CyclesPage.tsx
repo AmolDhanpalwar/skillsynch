@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import AppShell from '../components/layout/AppShell';
 import { supabase } from '../lib/supabaseClient';
+import { callEdgeFn } from '../lib/edgeFunctions';
 import { useCycle } from '../context/CycleContext';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -619,24 +620,12 @@ export default function CyclesPage() {
 
   async function handleActivate(cycle: CycleWithProgress) {
     setActivating(true);
-    const { error } = await supabase
-      .from('review_cycles')
-      .update({ status: 'active', triggered_at: new Date().toISOString() })
-      .eq('id', cycle.id);
-
+    const { error } = await callEdgeFn('activate-cycle', { cycle_id: cycle.id });
     if (error) {
-      showToast(error.message, 'error');
+      showToast(error, 'error');
     } else {
-      const { error: rpcError } = await supabase.rpc('activate_cycle_reset_forms', {
-        p_cycle_id: cycle.id,
-      });
-      if (rpcError) {
-        showToast(`Cycle activated but form reset failed: ${rpcError.message}`, 'warning');
-      } else {
-        showToast(`Cycle "${cycle.name}" is now active. All employee forms reset to draft.`, 'success');
-      }
+      showToast(`Cycle "${cycle.name}" is now active. All employee forms reset to draft.`, 'success');
       await refresh();
-      // adminCycles will update after refresh; the useEffect will re-run loadProgress automatically
     }
     setActivating(false);
     setActivatingCycle(null);
@@ -678,10 +667,10 @@ export default function CyclesPage() {
 
   async function handleSuspend(cycle: ReviewCycle, reason: string) {
     setSuspending(true);
-    const { error } = await supabase.rpc('suspend_cycle', {
-      p_cycle_id: cycle.id,
-      p_reason: reason.trim(),
-      p_user_id: user!.id,
+    const { error } = await callEdgeFn('suspend-cycle', {
+      cycle_id: cycle.id,
+      reason: reason.trim(),
+      user_id: user!.id,
     });
 
     setSuspending(false);
