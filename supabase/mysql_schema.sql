@@ -4,6 +4,25 @@
 --
 -- Converted from Supabase/PostgreSQL to MySQL 8.0+
 --
+-- ARCHITECTURE NOTE (updated 2026-06-09)
+-- ----------------------------------------
+-- All business logic has been moved out of the database into Git-tracked
+-- Supabase Edge Functions (supabase/functions/). The database is a pure
+-- data-persistence layer. There are no SECURITY DEFINER functions or
+-- business-logic stored procedures in this schema.
+--
+-- Edge Functions that replace former DB procedures/triggers:
+--   activate-cycle  → replaces activate_cycle_reset_forms() RPC
+--   suspend-cycle   → replaces suspend_cycle() RPC
+--   approve-form    → replaces trg_skill_form_approval_snapshot trigger
+--   return-form     → handles form return + employee notification
+--   admin-create-user     → creates Supabase Auth user + users profile row
+--   admin-reset-password  → resets a user's password via service role
+--
+-- For standalone MySQL deployments (without Edge Functions), see the
+-- "STANDALONE MYSQL" section at the bottom of this file for equivalent
+-- stored procedures you can re-enable.
+--
 -- KEY DIFFERENCES FROM THE POSTGRESQL VERSION
 -- -------------------------------------------
 -- 1. UUIDs          : CHAR(36) + UUID() function
@@ -16,7 +35,7 @@
 -- 8. DEFAULT now()  : DEFAULT CURRENT_TIMESTAMP(6)
 -- 9. RLS policies   : Removed — enforce access control in your API layer
 -- 10. auth.users    : Replaced with standalone `auth_users` table
--- 11. SECURITY DEFINER functions : converted to MySQL STORED PROCEDURES
+-- 11. SECURITY DEFINER functions : moved to Edge Functions (see above)
 -- 12. ON CONFLICT DO NOTHING : INSERT IGNORE
 -- 13. gen_random_uuid() : UUID()
 -- 14. Partial unique index (WHERE clause) : enforced via BEFORE trigger
@@ -397,126 +416,21 @@ BEGIN
 END$$
 
 
--- 5c. Auto-snapshot trigger on skill_form approval
---     (mirrors create_approval_snapshot() PostgreSQL SECURITY DEFINER trigger)
---     NOTE: MySQL triggers cannot do correlated subqueries for skill_items within
---     the same trigger statement — skill_items are embedded by the stored procedure
---     approve_form() below for a complete snapshot.
-CREATE TRIGGER trg_skill_form_approval_snapshot
-AFTER UPDATE ON skill_forms
-FOR EACH ROW
-BEGIN
-  DECLARE v_exists INT DEFAULT 0;
-
-  IF NEW.status = 'approved' AND OLD.status <> 'approved' AND NEW.cycle_id IS NOT NULL THEN
-
-    SELECT COUNT(*) INTO v_exists
-    FROM skill_form_versions
-    WHERE employee_id = NEW.employee_id AND cycle_id = NEW.cycle_id;
-
-    IF v_exists = 0 THEN
-      INSERT INTO skill_form_versions
-        (id, cycle_id, form_id, employee_id, snapshot, approved_at, approved_by, created_at)
-      VALUES (
-        UUID(),
-        NEW.cycle_id,
-        NEW.id,
-        NEW.employee_id,
-        JSON_OBJECT(
-          'id',                           NEW.id,
-          'employee_id',                  NEW.employee_id,
-          'cycle_id',                     NEW.cycle_id,
-          'status',                       'approved',
-          'employee_name',                NEW.employee_name,
-          'employee_email',               NEW.employee_email,
-          'employee_number',              NEW.employee_number,
-          'designation',                  NEW.designation,
-          'grade',                        NEW.grade,
-          'total_exp',                    NEW.total_exp,
-          'relevant_exp',                 NEW.relevant_exp,
-          'haptiq_exp',                   NEW.haptiq_exp,
-          'current_project',              NEW.current_project,
-          'tools',                        NEW.tools,
-          'databases',                    NEW.databases,
-          'certifications',               NEW.certifications,
-          'upskilling_plan',              NEW.upskilling_plan,
-          'manager_expectation_plan',     NEW.manager_expectation_plan,
-          'tools_manager_comment',        NEW.tools_manager_comment,
-          'databases_manager_comment',    NEW.databases_manager_comment,
-          'environments_manager_comment', NEW.environments_manager_comment,
-          'submitted_at',                 NEW.submitted_at,
-          'approved_at',                  NEW.approved_at,
-          'reminders_sent',               NEW.reminders_sent
-        ),
-        COALESCE(NEW.approved_at, CURRENT_TIMESTAMP(6)),
-        NULL,
-        CURRENT_TIMESTAMP(6)
-      );
-    END IF;
-  END IF;
-END$$
+-- 5c. Auto-snapshot on skill_form approval
+--     NOTE: This trigger was REMOVED as part of the architecture refactor
+--     (migration: 20260609000001_drop_db_business_logic).
+--     Approval snapshot creation is now handled entirely by the `approve-form`
+--     Edge Function, which runs with service-role credentials and inserts into
+--     skill_form_versions after setting status = 'approved' on skill_forms.
+--     If you port this schema to a standalone MySQL deployment (without Edge
+--     Functions), re-add this trigger and the approve_form() stored procedure
+--     below to maintain snapshot integrity.
 
 DELIMITER ;
 
 
 -- ============================================================================
--- 6. STORED PROCEDURES
---    (replace PostgreSQL SECURITY DEFINER RPC functions called via supabase.rpc())
--- ============================================================================
-
-DELIMITER $$
-
--- 6a. activate_cycle_reset_forms(p_cycle_id)
---     Called by TMG when activating a new cycle.
---     Resets ALL skill_forms to draft and assigns them to the new cycle.
-CREATE PROCEDURE activate_cycle_reset_forms(IN p_cycle_id CHAR(36))
-BEGIN
-  UPDATE skill_forms
-  SET
-    cycle_id            = p_cycle_id,
-    status              = 'draft',
-    submitted_at        = NULL,
-    approved_at         = NULL,
-    manager_review_date = NULL,
-    updated_at          = CURRENT_TIMESTAMP(6);
-END$$
-
-
--- 6b. suspend_cycle(p_cycle_id, p_reason, p_user_id)
---     Marks a cycle as suspended, records reason + actor,
---     and purges all non-approved forms + their skill_items for that cycle.
-CREATE PROCEDURE suspend_cycle(
-  IN p_cycle_id CHAR(36),
-  IN p_reason   TEXT,
-  IN p_user_id  CHAR(36)
-)
-BEGIN
-  UPDATE review_cycles
-  SET
-    status            = 'suspended',
-    suspended_at      = CURRENT_TIMESTAMP(6),
-    suspension_reason = p_reason,
-    suspended_by      = p_user_id
-  WHERE id = p_cycle_id
-    AND status = 'active';
-
-  -- Delete skill_items for non-approved forms in this cycle
-  DELETE si FROM skill_items si
-  INNER JOIN skill_forms sf ON si.form_id = sf.id
-  WHERE sf.cycle_id = p_cycle_id
-    AND sf.status <> 'approved';
-
-  -- Delete non-approved forms in this cycle
-  DELETE FROM skill_forms
-  WHERE cycle_id = p_cycle_id
-    AND status <> 'approved';
-END$$
-
-DELIMITER ;
-
-
--- ============================================================================
--- 7. SEED DATA — Settings Tables
+-- 6. SEED DATA — Settings Tables
 -- ============================================================================
 
 -- Skill Ratings
@@ -897,9 +811,95 @@ SET foreign_key_checks = 1;
 --   1. REST API layer  — Node.js + Express + mysql2 (or Prisma / TypeORM)
 --   2. Authentication  — JWT middleware + bcrypt password hashing in auth_users
 --   3. Access control  — replace RLS with API-level middleware role checks
---   4. RPC calls       — replace supabase.rpc('activate_cycle_reset_forms', ...)
---                        with POST /api/cycles/:id/activate etc.
---   5. Edge Functions  — replace supabase/functions/ with Express routes
+--   4. Edge Functions  — replace supabase/functions/ with Express routes
+--                        (activate-cycle, suspend-cycle, approve-form,
+--                         return-form, admin-create-user, admin-reset-password)
 --
 -- The MySQL schema above is a 100% faithful data model translation.
+--
+-- ============================================================================
+-- STANDALONE MYSQL — EQUIVALENT STORED PROCEDURES
+-- (uncomment and run these if you are NOT using Supabase Edge Functions)
+-- ============================================================================
+--
+-- DELIMITER $$
+--
+-- -- Activate a cycle: mark it active and reset all forms to draft
+-- CREATE PROCEDURE activate_cycle(IN p_cycle_id CHAR(36))
+-- BEGIN
+--   UPDATE review_cycles
+--   SET status = 'active', triggered_at = CURRENT_TIMESTAMP(6)
+--   WHERE id = p_cycle_id AND status = 'draft';
+--
+--   UPDATE skill_forms
+--   SET cycle_id = p_cycle_id, status = 'draft',
+--       submitted_at = NULL, approved_at = NULL,
+--       manager_review_date = NULL, updated_at = CURRENT_TIMESTAMP(6);
+-- END$$
+--
+--
+-- -- Suspend a cycle: mark it suspended and purge non-approved forms/items
+-- CREATE PROCEDURE suspend_cycle(
+--   IN p_cycle_id CHAR(36),
+--   IN p_reason   TEXT,
+--   IN p_user_id  CHAR(36)
+-- )
+-- BEGIN
+--   UPDATE review_cycles
+--   SET status = 'suspended', suspended_at = CURRENT_TIMESTAMP(6),
+--       suspension_reason = p_reason, suspended_by = p_user_id
+--   WHERE id = p_cycle_id AND status = 'active';
+--
+--   DELETE si FROM skill_items si
+--   INNER JOIN skill_forms sf ON si.form_id = sf.id
+--   WHERE sf.cycle_id = p_cycle_id AND sf.status <> 'approved';
+--
+--   DELETE FROM skill_forms
+--   WHERE cycle_id = p_cycle_id AND status <> 'approved';
+-- END$$
+--
+--
+-- -- Approve a form: set status, create immutable snapshot
+-- -- (skill_items must be saved before calling this procedure)
+-- CREATE PROCEDURE approve_form(
+--   IN p_form_id    CHAR(36),
+--   IN p_cycle_id   CHAR(36),
+--   IN p_employee_id CHAR(36),
+--   IN p_approved_by CHAR(36)
+-- )
+-- BEGIN
+--   DECLARE v_exists INT DEFAULT 0;
+--   UPDATE skill_forms
+--   SET status = 'approved', approved_at = CURRENT_TIMESTAMP(6)
+--   WHERE id = p_form_id;
+--
+--   SELECT COUNT(*) INTO v_exists FROM skill_form_versions
+--   WHERE employee_id = p_employee_id AND cycle_id = p_cycle_id;
+--
+--   IF v_exists = 0 THEN
+--     INSERT INTO skill_form_versions
+--       (id, cycle_id, form_id, employee_id, snapshot, approved_at, approved_by, created_at)
+--     SELECT
+--       UUID(), p_cycle_id, p_form_id, p_employee_id,
+--       JSON_OBJECT(
+--         'id', sf.id, 'employee_id', sf.employee_id, 'cycle_id', sf.cycle_id,
+--         'status', 'approved', 'employee_name', sf.employee_name,
+--         'grade', sf.grade, 'designation', sf.designation,
+--         'total_exp', sf.total_exp, 'relevant_exp', sf.relevant_exp,
+--         'haptiq_exp', sf.haptiq_exp, 'current_project', sf.current_project,
+--         'tools', sf.tools, 'databases', sf.databases,
+--         'certifications', sf.certifications,
+--         'upskilling_plan', sf.upskilling_plan,
+--         'manager_expectation_plan', sf.manager_expectation_plan,
+--         'tools_manager_comment', sf.tools_manager_comment,
+--         'databases_manager_comment', sf.databases_manager_comment,
+--         'environments_manager_comment', sf.environments_manager_comment,
+--         'submitted_at', sf.submitted_at, 'approved_at', sf.approved_at
+--       ),
+--       CURRENT_TIMESTAMP(6), p_approved_by, CURRENT_TIMESTAMP(6)
+--     FROM skill_forms sf WHERE sf.id = p_form_id;
+--   END IF;
+-- END$$
+--
+-- DELIMITER ;
 -- ============================================================================

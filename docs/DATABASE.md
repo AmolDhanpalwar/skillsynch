@@ -459,6 +459,7 @@ Migrations are in `supabase/migrations/` and are applied in filename order (time
 | `20260526160937_20260526000001_add_review_cycles_and_versioning.sql` | Adds `review_cycles` table, `skill_form_versions` table, `cycle_id` FK on `skill_forms`, `CycleType` enum labels, RLS policies for both new tables |
 | `20260528084913_create_missing_snapshots_and_approval_trigger.sql` | Backfills 4 missing snapshots for closed cycle, creates `create_approval_snapshot()` SECURITY DEFINER trigger function, creates `trg_skill_form_approval_snapshot` trigger, creates `activate_cycle_reset_forms()` SECURITY DEFINER RPC function |
 | `20260608114003_add_sso_config_table.sql` | Adds `sso_config` table for DB-driven SSO feature flags; seeds Google provider row (disabled); adds three RLS policies: admin full-access, authenticated read, anon read |
+| `20260609072254_20260609000001_drop_db_business_logic.sql` | Drops `trg_skill_form_approval_snapshot` trigger and SECURITY DEFINER functions `create_approval_snapshot()`, `activate_cycle_reset_forms()`, `suspend_cycle()` — business logic moved to Edge Functions |
 
 ### Adding a New Migration
 

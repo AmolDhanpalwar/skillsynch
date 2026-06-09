@@ -2,8 +2,8 @@
 -- HAPTIQ SKILLSYNC — MYSQL DATA DUMP
 -- ============================================================================
 --
--- Live data exported from Supabase on 2026-06-08
--- Compatible with: supabase/mysql_schema.sql
+-- Live data exported from Supabase on 2026-06-09
+-- Compatible with: supabase/mysql_schema.sql (architecture refactor applied)
 --
 -- HOW TO RUN
 -- ----------
@@ -11,6 +11,16 @@
 --      mysql -u <user> -p <db> < supabase/mysql_schema.sql
 -- 2. Then load this data:
 --      mysql -u <user> -p <db> < supabase/mysql_data_dump.sql
+--
+-- ARCHITECTURE NOTE
+-- -----------------
+-- As of 2026-06-09 all business logic (cycle activation, suspension, form
+-- approval/return, snapshot creation) runs in Supabase Edge Functions, not
+-- in stored procedures or DB triggers. The mysql_schema.sql no longer
+-- contains activate_cycle_reset_forms(), suspend_cycle(), or the
+-- trg_skill_form_approval_snapshot trigger. If you deploy against MySQL
+-- without Edge Functions, uncomment the STANDALONE MYSQL section at the
+-- bottom of mysql_schema.sql.
 --
 -- NOTE: auth_users rows are provided as placeholder records so that the
 -- foreign key constraint from users.id → auth_users.id is satisfied.
