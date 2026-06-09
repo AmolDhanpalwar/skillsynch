@@ -1,6 +1,12 @@
 import { supabase } from './db';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+// Resolve the correct base URL based on the active DB provider.
+// - Supabase: edge functions live at <SUPABASE_URL>/functions/v1/<slug>
+// - MySQL:    equivalent routes live at <MYSQL_API_URL>/functions/v1/<slug>
+const _provider = import.meta.env.VITE_DB_PROVIDER ?? 'supabase';
+const BASE_URL = _provider === 'mysql'
+  ? (import.meta.env.VITE_MYSQL_API_URL as string)
+  : (import.meta.env.VITE_SUPABASE_URL as string);
 
 async function getAuthHeader(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession();
@@ -14,7 +20,7 @@ export async function callEdgeFn<T = unknown>(
 ): Promise<{ data: T | null; error: string | null }> {
   try {
     const authHeader = await getAuthHeader();
-    const res = await fetch(`${SUPABASE_URL}/functions/v1/${slug}`, {
+    const res = await fetch(`${BASE_URL}/functions/v1/${slug}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader },
       body: JSON.stringify(body),

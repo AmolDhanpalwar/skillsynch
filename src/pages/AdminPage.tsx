@@ -18,6 +18,7 @@ import {
 import AppShell from '../components/layout/AppShell';
 import { SkeletonTableRows } from '../components/ui/Skeleton';
 import { supabase } from '../lib/db';
+import { callEdgeFn } from '../lib/edgeFunctions';
 import { seedUsersIfEmpty } from '../lib/seedUsers';
 import type { UserRole } from '../types';
 
@@ -69,26 +70,15 @@ function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
     setError('');
     setSaving(true);
     try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-
-      const res = await fetch(`${supabaseUrl}/functions/v1/admin-create-user`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${supabaseAnonKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(form),
-      });
-      let data: { error?: string; success?: boolean; user_id?: string } = {};
-      try { data = await res.json(); } catch { /* non-JSON response */ }
-      if (!res.ok) {
-        const raw = data.error ?? '';
+      const { data, error } = await callEdgeFn<{ success?: boolean; user_id?: string }>('admin-create-user', form as unknown as Record<string, unknown>);
+      if (error) {
+        const raw = error ?? '';
         if (raw.toLowerCase().includes('already registered') || raw.toLowerCase().includes('already been registered') || raw.toLowerCase().includes('duplicate') || raw.toLowerCase().includes('unique')) {
           throw new Error('A user with this email address already exists.');
         }
         throw new Error(raw || 'Failed to create user. Please try again.');
       }
+      void data;
       onCreated();
       onClose();
     } catch (err) {
@@ -506,13 +496,7 @@ export default function AdminPage() {
     const user = users.find((u) => u.id === userId);
     if (!user) { setResetingId(null); return; }
 
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-    await fetch(`${supabaseUrl}/functions/v1/admin-reset-password`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${supabaseAnonKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: userId }),
-    });
+    await callEdgeFn('admin-reset-password', { user_id: userId });
     setResetingId(null);
   }
 
